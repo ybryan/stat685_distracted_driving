@@ -1,0 +1,48 @@
+---
+title: "Distracted Driving Proposal"
+subtitle: "STAT 685: Summer 2018"
+author: Bryan Yu - bryanyu@tamu.edu
+output: pdf_document
+---
+
+**Proposal:**
+
+Car driving requires significant visual attention to avoid collisions and dangerous situations. A common motorcycle phrase, "*Look where you want to go*" is similarly applicable to driving a car. However, under distracted driving, deviations in steering and lane positioning is likely to occur. For this project, I am proposing to infer the effect sizes and uncertainty in how eye movement affects lane positioning and steering under the sensorimotor stressor (texting while driving) compared to normal driving. It is also of interest to see differences between the two age cohorts in their response times to correct for lane deviation and steering drift under both Experiment I and II from *Taamneh*$^1$.
+
+Eye tracking data in both x and y gaze positions and pupil dilation will be used to as explanatory variables of interest. Distance measurements between observations such as euclidean distance will be used to understand gaze movement. The age cohort will be used as an indicator variable.
+
+Note: Although the intent of the experiment was to understand factors in a car crash, the experiment only presents a single scenario of a collision scenario in the Failure Drive and does not make note of collision events within the data set.
+
+\vspace{5mm}
+
+**Modeling and Tooling:**
+
+Multi-level bayesian linear regression model with `Stan`.
+
+A psuedo-model: 
+$$\Delta Y = \beta_1 x_i + \beta_2 x_j + \beta_3 x_k$$
+
+$\Delta Y$: Lane deviation / steering
+
+$x_{i}$: Indicator variable for age cohort (young and old)
+
+$x_{j}$: Eye movement gaze positioning aggregated over previous windows of time/distance
+
+$x_{k}$: Pupil dilation
+
+
+\vspace{5mm}
+
+Additional variables of interest can be added as needed to increase the model complexity:
+
+* Gender
+* Driving record
+* Trait anxiety inventory
+* Personality type
+* Vehicular inputs (throttle / braking)
+
+\vfill
+
+**References**
+
+1. Taamneh, S. et al. A multimodal dataset for various forms of distracted driving. Sci. Data 4:170110 doi: 10.1038/sdata.2017.110 (2017). 
