@@ -1,4 +1,3 @@
----
 title: "Distracted Driving Assignment 2"
 author: Bryan Yu - bryanyu@tamu.edu
 output: html_document
@@ -13,55 +12,124 @@ dir_path <- here("data")
 subject <- dir_path %>% dir() %>% str_sub(0, 4)
 file_paths <- map(dir(here("data")), function(file_name) c(here("data", file_name)))
 
-drive_index <- readxl::read_excel(here("doc", "Dataset-Table-Index.xlsx"))
-df <- map(file_paths, read.csv) %>% set_names(subject) %>%
-    bind_rows(.id = "ID")
-df$ID <- subject
-df_nest <- df %>% group_by(ID) %>% nest()
-rm(subject)
+index_data <- readxl::read_excel(here("etc", "Dataset-Table-Index.xlsx")) %>%
+  dplyr::filter(stringr::str_detect(Subject, 'T[0-9]{3}'))
+    
+subject_bio <- index_data %>% 
+  dplyr::filter(!is.na(Gender)) %>%
+  select(subject=Subject, gender=Gender, age_group=`Age Group`)
+
+subject_test <- index_data %>%
+    select(subject=Subject, session=Session, FACS, eye)
+
+drive_id <- read_delim(here("etc", "drive_type.txt"), delim = ",")
+
+df <- map(file_paths, read.csv) %>% 
+  set_names(subject) %>% 
+  bind_rows(.id = "ID") %>% 
+  select(subject=ID, time=Time, distance=Distance, drive=Drive, stimulus=Stimulus, failure=Failure,
+         speed=Speed, steering=Steering,
+         lane_position=Lane.Position,
+         gaze_x=Gaze.X.Pos, gaze_y=Gaze.Y.Pos,
+         left_pupil=Lft.Pupil.Diameter, right_pupil=Rt.Pupil.Diameter)
+df_nest <- df %>% group_by(subject) %>% nest()
+rm(subject, file_paths, dir_path, index_data)
 ```
 
-## Summary
+#### 1. Summary
 
 **Modeling**
 
-In order to familiarize myself with `Stan` and bayesian modeling, initial implementation focused on investigating the variation of the normal driving mode without the distracted driving term from Experiment 1. Future models will incorporate the distracted driving as a separate intercept term. 
+In order to familiarize myself with `Stan` and bayesian modeling, initial implementation focused on investigating the variation of the normal driving mode without the distracted driving term from Experiment 1$^1$. Future models will incorporate the distracted driving as a separate intercept term. 
 
 **Data set issues**
 
-Dr. Akleman noted last week that facial expression would useful to incorporate into the model. Due to data size constraints (zip file size > 500 MB), imported data into S3 and extracted *.FACs data. Will add to model in the future during feature engineering phase.
+Dr. Akleman noted last week that facial expression would useful to incorporate into the model. Due to data size constraints (57.5 GB), imported data into S3 and extracted *.FACs data. Will add to model in the future during feature engineering phase.
 
+#### 2. Observations:
 
-### Observations:
+```{r, fig.width=4, fig.height=4, echo=FALSE, message=FALSE, warning=FALSE}
+library(tidyverse)
+session_df <- df %>%
+  dplyr::filter(!drive %in% c(1, 2, 3, 8)) %>%
+  dplyr::filter(!(subject=="T018" & drive %in% c(5, 6))) %>% # Missing / duplicated data
+  dplyr::filter(!(subject=="T020" & drive %in% c(4, 7))) %>%
+  dplyr::filter(!(subject=="T026" & drive==6)) %>%
+  left_join(drive_id, by=c("subject", "drive")) %>%
+  mutate(session_f = factor(session, levels=c("PD", "RD", "ND", "CD", "ED", "MD")))
 
-1. Lane deviation appears stationary, no growth/decay trend appears evident. Candidate for stochastic volatility model similar to financial returns for the return of an asset in discrete time^2. 
+ggplot(session_df, aes(x=distance, y=lane_position)) +
+  geom_line() +
+  facet_grid(session_f ~ .) +
+  theme_bw() +
+  labs(x = 'Distance', y = 'Lane Position')
+```
+
+1. Lane deviation appears stationary, no growth/decay trend appears evident. Candidate for stochastic volatility model similar to financial returns for the return of an asset in discrete time$^2$. 
 
 2. Heavy tails in the distracted driving segment
 
-3. Changepoints will be useful to incorporate known differences in behavior (including lane change / phases).
+3. Changepoints will be useful to incorporate known differences in behavior (phases of driving / lane change)
 
-Phase 1: Driving without distractions for ~80s
-Phase 2: Driving while engaged in secondary activity
-Phase 3: Driving without distraction for ~240s (lane change)
-Phase 4: Driving while engaged in secondary actilvyt for 160s
-Phase 5: Driving without distractions for ~120s
+    * Phase 1: Driving without distractions for ~80s
+    
+    * Phase 2: Driving while engaged in secondary activity
+    
+    * Phase 3: Driving without distraction for ~240s (lane change)
+    
+    * Phase 4: Driving while engaged in secondary actilvyt for 160s
+    
+    * Phase 5: Driving without distractions for ~120s
 
-#### Data Quality
+#### 3. Data Quality
 
-Missing eye tracking data for the following subjects (n=19):
+* Missing eye tracking data for the following subjects:
 
-T002, T003, T007, T008,	T015, T017, T023, T026, T027, T028, T029, T032	T036, T038, T042, T047, T055, T075, T086
+```{r, echo=FALSE, message=FALSE} 
+library(tidyverse)
+subject_test %>% 
+    dplyr::filter(eye==0 & (session=='ND' | session=='MD')) %>% 
+    distinct(subject)
+```
 
-Missing FAC data for the following subjects (n=9):
+* Missing FAC data for the following subjects:
 
-T026, T043, T045, T050, T051, T055, T062, T068, T075
+```{r, echo=FALSE, message=FALSE} 
+library(tidyverse)
+subject_test %>% 
+    dplyr::filter(FACS==0 & (session=='ND' | session=='MD')) %>% 
+    distinct(subject)
+```
 
-*Current model:*
+* Data not properly labelled in the `Structured Study Data` for the following drives T018-5/6, T020-4/7 and missing T026-6:
+
+```{r, include=FALSE}
+library(knitr)
+session_df %>% dplyr::filter(is.na(session)) %>% group_by(subject, drive) %>% summarise() %>%
+  kable(format="markdown")
+```
+
+* Figures not matching with Nature article Figure 6
+
+#### 4. Current model
 
 $y = \alpha + \beta_3 x_i + \epsilon_n$ where $\epsilon$ ~ Normal(0, $\sigma$)
+
+```{r, echo=FALSE, message=FALSE}
+library("rstan") 
+rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores())
+```
+
+
+#### Questions
+
+1. What is lane offset? Not specified in the description 
 
 **References**
 
 1. Taamneh, S. et al. *A multimodal dataset for various forms of distracted driving.* Sci. Data 4:170110 doi: 10.1038/sdata.2017.110 (2017). 
 
-2. Stan Development Team (2017) *Stan Modeling Language: User's Guide and Reference Manual* Version 2.17.0 (2017)
+2. Stan Development Team (2017) *Stan Modeling Language: User's Guide and Reference Manual* Version 2.17.0 (2017), 10.5
+```
+
