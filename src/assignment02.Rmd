@@ -1,3 +1,4 @@
+---
 title: "Distracted Driving Assignment 2"
 author: Bryan Yu - bryanyu@tamu.edu
 output: html_document
@@ -13,27 +14,46 @@ subject <- dir_path %>% dir() %>% str_sub(0, 4)
 file_paths <- map(dir(here("data")), function(file_name) c(here("data", file_name)))
 
 index_data <- readxl::read_excel(here("etc", "Dataset-Table-Index.xlsx")) %>%
-  dplyr::filter(stringr::str_detect(Subject, 'T[0-9]{3}'))
+    dplyr::filter(stringr::str_detect(Subject, 'T[0-9]{3}'))
     
 subject_bio <- index_data %>% 
-  dplyr::filter(!is.na(Gender)) %>%
-  select(subject=Subject, gender=Gender, age_group=`Age Group`)
+    dplyr::filter(!is.na(Gender)) %>%
+    select(subject=Subject, gender=Gender, age_group=`Age Group`)
 
 subject_test <- index_data %>%
     select(subject=Subject, session=Session, FACS, eye)
+drive_map <- c(1:8)
+names(drive_map) <- c("BL", "PD", "RD", "ND", "CD", "ED", "MD", "FD")
 
-drive_id <- read_delim(here("etc", "drive_type.txt"), delim = ",")
+phase_convert <- function(Time) {
+    if (Time < 80) {
+        return(1)
+    } else if (Time >= 80 & Time < 80 + 160) {
+        return(2)
+    } else if (Time >= 80 + 160 & Time < 80 + 160 + 240) {
+        return(3)
+    } else if (Time >= 80 + 160 + 240 & Time < 80 + 160 + 240 + 160) {
+        return(4)
+    } else {
+        return(5)
+    }
+}
 
 df <- map(file_paths, read.csv) %>% 
-  set_names(subject) %>% 
-  bind_rows(.id = "ID") %>% 
-  select(subject=ID, time=Time, distance=Distance, drive=Drive, stimulus=Stimulus, failure=Failure,
-         speed=Speed, steering=Steering,
-         lane_position=Lane.Position,
-         gaze_x=Gaze.X.Pos, gaze_y=Gaze.Y.Pos,
-         left_pupil=Lft.Pupil.Diameter, right_pupil=Rt.Pupil.Diameter)
-df_nest <- df %>% group_by(subject) %>% nest()
-rm(subject, file_paths, dir_path, index_data)
+    set_names(subject) %>% 
+    bind_rows(.id = "Subject")
+df$Drive <- names(drive_map[df$Drive])
+df$phase <- map_dbl(df$Time, phase_convert)
+df <- df %>% 
+    dplyr::filter(Drive %in% c("ND", "MD")) %>%
+    mutate(phase = as.factor(phase))
+# df_nest <- df %>% group_by(Subject) %>% nest()
+
+nd_df <- df %>%
+    dplyr::filter(Drive == "ND") %>%
+    dplyr::filter(!between(Distance, 5000, 7000))
+
+rm(file_paths, dir_path, index_data, phase_convert)
 ```
 
 #### 1. Summary
@@ -48,38 +68,63 @@ Dr. Akleman noted last week that facial expression would useful to incorporate i
 
 #### 2. Observations:
 
-```{r, fig.width=4, fig.height=4, echo=FALSE, message=FALSE, warning=FALSE}
+```{r friendly_data, echo=FALSE, message=FALSE, warning=FALSE}
 library(tidyverse)
-session_df <- df %>%
-  dplyr::filter(!drive %in% c(1, 2, 3, 8)) %>%
-  dplyr::filter(!(subject=="T018" & drive %in% c(5, 6))) %>% # Missing / duplicated data
-  dplyr::filter(!(subject=="T020" & drive %in% c(4, 7))) %>%
-  dplyr::filter(!(subject=="T026" & drive==6)) %>%
-  left_join(drive_id, by=c("subject", "drive")) %>%
-  mutate(session_f = factor(session, levels=c("PD", "RD", "ND", "CD", "ED", "MD")))
 
-ggplot(session_df, aes(x=distance, y=lane_position)) +
-  geom_line() +
-  facet_grid(session_f ~ .) +
-  theme_bw() +
-  labs(x = 'Distance', y = 'Lane Position')
+ggplot(df, aes(x=Distance, y=Lane.Position)) + 
+    geom_line(aes(colour=phase)) +
+    facet_grid(Drive ~ .) +
+    theme_bw() +
+    labs(x = 'Distance', y = 'Lane Position (m)') +
+    theme(legend.position = "bottom")
+
+ggplot(nd_df, aes(x=Distance, y=Lane.Position)) + 
+    geom_point(size=1) +
+    theme_bw() +
+    labs(x = 'Distance', y = 'Lane Position (m)') +
+    theme(legend.position = "bottom")
+```
+
+```{r structured_data, include=FALSE}
+#library(here)
+#library(tidyverse)
+#res_files <- dir(here("structured_study_data"), pattern="*.res", recursive=TRUE, full.names=TRUE)
+#nd_files <- res_files[str_detect(res_files, "ND")]
+#md_files <- res_files[str_detect(res_files, "MD")]
+
+#nd_subjects <- str_sub(nd_files, 71, 74)
+#md_subjects <- str_sub(md_files, 71, 74)
+
+#nd_df <- map(nd_files, readxl::read_excel, skip=8) %>%
+#    set_names(nd_subjects) %>%
+#    bind_rows(.id = "subject") %>%
+#    dplyr::filter(!subject %in% c("T060", "T061"))
+
+#md_df <- map(md_files, readxl::read_excel, skip=8) %>%
+#    set_names(md_subjects) %>%
+#    bind_rows(.id = "subject") %>%
+#    dplyr::filter(!subject %in% c("T060", "T061"))
+
+#rm(res_files, nd_files, md_files, nd_subjects, md_subjects)
+
+#ggplot(nd_df, aes(x=Time, y=`Lane Position`, group=subject)) +
+#    geom_line() +
+#    theme_bw() +
+#    labs(x = 'Time', y = 'Lane Position') +
+#    theme(legend.position = "none")
+
+#ggplot(md_df, aes(x=Time, y=`Lane Position`, group=subject)) +
+#    geom_line() + 
+#    theme_bw() +
+#    labs(x = 'Time', y = 'Lane Position') +
+#    theme(legend.position="none")
 ```
 
 1. Lane deviation appears stationary, no growth/decay trend appears evident. Candidate for stochastic volatility model similar to financial returns for the return of an asset in discrete time$^2$. 
 
 2. Heavy tails in the distracted driving segment
 
-3. Changepoints will be useful to incorporate known differences in behavior (phases of driving / lane change)
-
-    * Phase 1: Driving without distractions for ~80s
-    
-    * Phase 2: Driving while engaged in secondary activity
-    
-    * Phase 3: Driving without distraction for ~240s (lane change)
-    
-    * Phase 4: Driving while engaged in secondary actilvyt for 160s
-    
-    * Phase 5: Driving without distractions for ~120s
+3. Changepoints will be useful to incorporate known differences in behavior (phases of driving / lane change). However, timing does not appear to follow phases as described in Experiment 1 description.
 
 #### 3. Data Quality
 
@@ -103,13 +148,9 @@ subject_test %>%
 
 * Data not properly labelled in the `Structured Study Data` for the following drives T018-5/6, T020-4/7 and missing T026-6:
 
-```{r, include=FALSE}
-library(knitr)
-session_df %>% dplyr::filter(is.na(session)) %>% group_by(subject, drive) %>% summarise() %>%
-  kable(format="markdown")
-```
+* Data is described as randomized order for 4-7 loaded drives but in the R-Friendly Dataset, order of drives is not randomized
 
-* Figures not matching with Nature article Figure 6
+* Missing lane position data for T060 / T061 in the Structured Data Set
 
 #### 4. Current model
 
@@ -119,10 +160,11 @@ $y = \alpha + \beta_3 x_i + \epsilon_n$ where $\epsilon$ ~ Normal(0, $\sigma$)
 library("rstan") 
 rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
+here("src", "nd_nolanechange.stan")
 ```
 
 
-#### Questions
+#### 5. Questions
 
 1. What is lane offset? Not specified in the description 
 
