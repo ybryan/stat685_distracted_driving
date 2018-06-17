@@ -1,5 +1,8 @@
 *.pdf
+.RData
+.Rhistory
 .Rproj.user
 *_cache/
 *.html
 *$*.xls*
+structured_study_data
