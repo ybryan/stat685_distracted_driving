@@ -6,12 +6,21 @@ output: html_document
 ---
 
 ```{r setup, echo=FALSE, message=FALSE, cache=TRUE}
-library(tidyverse)
+library(rstan)
 library(here)
 library(conflicted)
+library(dplyr)
+library(purrr)
+library(ggplot2)
 
+options(mc.cores = parallel:detectCores())
+```
+
+
+
+```{r data}
 dir_path <- here("data")
-subject <- dir_path %>% dir() %>% str_sub(0, 4)
+subject <- dir_path %>% dir() %>% stringr::str_sub(0, 4)
 file_paths <- map(dir(here("data")), function(file_name) c(here("data", file_name)))
 
 index_data <- readxl::read_excel(here("etc", "Dataset-Table-Index.xlsx")) %>%
@@ -57,7 +66,7 @@ nd_df <- df %>%
 rm(file_paths, dir_path, index_data, phase_convert, drive_map)
 ```
 
-### 1. Summary
+## 1. Summary
 
 **Modeling**
 
@@ -67,11 +76,9 @@ In order to familiarize myself with `Stan` and bayesian modeling, initial implem
 
 Dr. Akleman noted last week that facial expression would useful to incorporate into the model. Due to data size constraints (57.5 GB), imported data into S3 and extracted *.FACs data. Will add to model in the future during feature engineering phase.
 
-### 2. Observations
+## 2. Observations
 
 ```{r friendly_data, echo=FALSE, message=FALSE, warning=FALSE}
-library(tidyverse)
-
 ggplot(df, aes(x=Distance, y=Lane.Position)) + 
     geom_line(aes(colour=phase)) +
     facet_grid(Drive ~ .) +
@@ -127,12 +134,11 @@ ggplot(nd_df, aes(x=Distance, y=Lane.Position)) +
 
 3. Changepoints will be useful to incorporate known differences in behavior (phases of driving / lane change). However, timing does not appear to follow phases as described in Experiment 1 description.
 
-### 3. Data Quality
+## 3. Data Quality
 
 * Missing eye tracking data for the following subjects:
 
 ```{r, echo=FALSE, message=FALSE} 
-library(tidyverse)
 missing_eyes <- subject_test %>% 
     dplyr::filter(eye==0 & (session=='ND' | session=='MD')) %>% 
     distinct(subject)
@@ -142,7 +148,6 @@ missing_eyes$subject
 * Missing FAC data for the following subjects:
 
 ```{r, echo=FALSE, message=FALSE} 
-library(tidyverse)
 missing_facs <- subject_test %>% 
     dplyr::filter(FACS==0 & (session=='ND' | session=='MD')) %>% 
     distinct(subject)
@@ -155,23 +160,19 @@ missing_facs$subject
 
 * Missing lane position data for T060 / T061 in the Structured Data Set
 
-### 4. Current model
-
-#### 4.1 Conceptual analysis
+## 4. Current model
+### 4.1 A simple model
+#### 1. Conceptual analysis
 68 drivers from two different age groups and genders with pupil dilation recorded at each point in space. Lane position is recorded at each point of distance and with likely little change in the normal driving scenario after not including the lane change.
 
-#### 4.2 Define Observations
+#### 2. Define Observations
 ```{r}
 writeLines(readLines(here("src", "stan", "nd_no_lanechange.stan"), n=5))
 ```
 
-#### 4.3 Identify relevant summary statistics
+#### 3. Identify relevant summary statistics 
 
-The standard deviation should be a useful summary statistic. Given the 4 lane highway, it would be possible but unlikely to see land positions changing by more than standard deviation of 8 meters.
-
-
-
-There are 
+The standard deviation will be a useful summary statistic. Given the 4 lane highway, it would be possible but unlikely to see lane positions change by more than 4 meters, especially without a lane change. Might be able to see differences based on age.
 
 ```{r}
 mean_lane <- function(df) mean(df$Lane.Position, na.rm=TRUE)
@@ -181,19 +182,21 @@ mean_leye <- function(df) sd(df$Rt.Pupil.Diameter, na.rm=TRUE)
 mean_reye <- function(df) sd(df$Lft.Pupil.Diameter, na.rm=TRUE)
 
 nd_nest <- nd_df %>% group_by(Subject) %>% nest() %>%
+    inner_join(subject_bio, by=c("Subject" = "subject")) %>%
     mutate(avg_lane=map_dbl(data, mean_lane), 
            sd_lane=map_dbl(data, sd_lane),
            r_dilation=map_dbl(data, mean_reye),
            l_dilation=map_dbl(data, mean_leye))
-```
 
+rm(mean_lane, mean_leye, mean_reye, sd_lane)
+```
 
 A multilevel model with age and gender as intercepts and slope from the pupil dilation to the the response of the lane position
 
 $$y_n \sim \mathcal{N}(\mu_n, \sigma_n)$$
-$$\mu_n\sim \alpha_0 + \alpha_{age} + \alpha_{gender} + \beta_{pupil}x_{i} $$
+$$\mu_n\sim \alpha_0 + \alpha_{age} + \beta_{pupil}x_{i} $$
 
-where $n \in \{ 1, \ldots, 68 \}$ and $x_i =$ distance
+where $n \in \{ 1, \ldots, 68 \}$ and $j =$ distance
 
 ```{r, echo=FALSE, message=FALSE}
 library(rstan) 
@@ -203,6 +206,14 @@ rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
 here("src", "stan", "nd_nolanechange.stan")
 ```
+
+### 4.2 With "time" series
+
+$$y_n \sim \mathcal{N}(\alpha + \beta y_{n-1}, \sigma)$$
+```{r}
+
+```
+
 
 ### 5. Questions
 
