@@ -5,17 +5,17 @@ author: Bryan Yu - bryanyu@tamu.edu
 output: pdf_document
 ---
 
-```{r setup, echo=FALSE, message=FALSE, cache=TRUE}
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
 library(rstan)
 library(here)
 library(conflicted)
 library(dplyr)
 library(purrr)
 library(ggplot2)
-library(parallel)
 
 rstan_options(auto_write=TRUE)
-options(mc.cores = detectCores())
+options(mc.cores = parallel::detectCores())
 source(here('src', 'codebase', 'stan_utility.R'))
 ```
 
@@ -81,7 +81,7 @@ Dr. Akleman noted last week that facial expression would useful to incorporate i
 
 ## 2. Observations
 
-```{r friendly_data, echo=FALSE, message=FALSE, warning=FALSE}
+```{r friendly_data, echo=FALSE, message=FALSE, warning=FALSE, fig.width=3, fig.height=4}
 ggplot(df, aes(x=Distance, y=Lane.Position)) + 
     geom_line(aes(colour=phase)) +
     facet_grid(Drive ~ .) +
@@ -96,41 +96,7 @@ ggplot(nd_df, aes(x=Distance, y=Lane.Position)) +
     theme(legend.position = "bottom")
 ```
 
-```{r structured_data, include=FALSE}
-#library(here)
-#library(tidyverse)
-#res_files <- dir(here("structured_study_data"), pattern="*.res", recursive=TRUE, full.names=TRUE)
-#nd_files <- res_files[str_detect(res_files, "ND")]
-#md_files <- res_files[str_detect(res_files, "MD")]
-
-#nd_subjects <- str_sub(nd_files, 71, 74)
-#md_subjects <- str_sub(md_files, 71, 74)
-
-#nd_df <- map(nd_files, readxl::read_excel, skip=8) %>%
-#    set_names(nd_subjects) %>%
-#    bind_rows(.id = "subject") %>%
-#    dplyr::filter(!subject %in% c("T060", "T061"))
-
-#md_df <- map(md_files, readxl::read_excel, skip=8) %>%
-#    set_names(md_subjects) %>%
-#    bind_rows(.id = "subject") %>%
-#    dplyr::filter(!subject %in% c("T060", "T061"))
-
-#rm(res_files, nd_files, md_files, nd_subjects, md_subjects)
-
-#ggplot(nd_df, aes(x=Time, y=`Lane Position`, group=subject)) +
-#    geom_line() +
-#    theme_bw() +
-#    labs(x = 'Time', y = 'Lane Position') +
-#    theme(legend.position = "none")
-
-#ggplot(md_df, aes(x=Time, y=`Lane Position`, group=subject)) +
-#    geom_line() + 
-#    theme_bw() +
-#    labs(x = 'Time', y = 'Lane Position') +
-#    theme(legend.position="none")
-```
-
+\newpage
 1. Lane deviation appears stationary, no growth/decay trend appears evident. Candidate for stochastic volatility model similar to financial returns for the return of an asset in discrete time$^2$. 
 
 2. Heavy tails in the distracted driving segment
@@ -163,8 +129,9 @@ missing_facs$subject
 
 * Missing lane position data for T060 / T061 in the Structured Data Set
 
-## 4. Current model
-### 4.1 A simple model
+\newpage
+
+## 3. Current model
 #### 1. Conceptual analysis
 
 68 drivers from two different age groups and genders with pupil dilation recorded at each point in space. Lane position is recorded at each point of distance and with likely little change in the normal driving scenario after not including the lane change.
@@ -202,16 +169,11 @@ $$\mu_n\sim \mu_0+ \mu_{age} $$
 
 where $n \in \{ 1, \ldots, 68 \}$ and $j =$ distance
 
-```{r, echo=FALSE, message=FALSE, include=FALSE}
-library(rstan) 
-library(here)
-
-rstan_options(auto_write = TRUE)
-options(mc.cores = parallel::detectCores())
-here("src", "stan", "nd_nolanechange.stan")
+```{r}
+writeLines(readLines(here("src", "stan", "nd_no_lanechange.stan")))
 ```
 
-### 5. Questions
+## 4. Questions
 
 1. What is lane offset? Not specified in the description 
 

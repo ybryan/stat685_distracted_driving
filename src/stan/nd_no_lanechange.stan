@@ -1,17 +1,24 @@
 data {
-    int<lower=0> N;     // number of drivers
-
-    vector[N] y;        // vector of lane position std deviation
+    int<lower=1> J;             // number of age cohorts
+    real y[J];                  // mean lane position of each driver
+    real<lower=0> sigma[J];     // sd lane position of each driver
 }
 
 parameters {
-    real alpha;
-    real beta;
-    real<lower=0> sigma;
+    real mu;                // population lane position
+    real<lower=0> tau;      // population sd lane position
+    vector[J] eta;          // age-level errors
+}
+
+transformed parameters {
+    vector[J] theta;        // age effect
+    theta = mu + tau*eta;
 }
 
 model {
-    sigma ~ cauchy(0, 10)
+    eta ~ normal(0, 1);
+    sigma ~ cauchy(0, 10);
 
-    y ~ normal(mu, sigma);
+    for (j in 1:j)
+        y[j] ~ normal(theta[j], sigma[j]);
 }
