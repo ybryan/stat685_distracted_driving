@@ -1,0 +1,76 @@
+---
+title: "assignment03"
+output: slidy_presentation
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(magrittr)
+source(here('src', 'codebase', 'stan_utility.R'))
+```
+
+```{r load_facs_data, include=FALSE}
+facs_files <- dir(here::here("structured_study_data"),
+                 pattern="*.FACS", recursive=TRUE, full.names=TRUE)
+nd_files <- facs_files[stringr::str_detect(facs_files, "ND")]
+md_files <- facs_files[stringr::str_detect(facs_files, "MD")]
+
+nd_subjects <- stringr::str_sub(nd_files, 70, 73)
+md_subjects <- stringr::str_sub(md_files, 70, 73)
+
+col_names <- c('Frame', 'Time', 'Anger', 'Contempt', 'Disgust',
+               'Fear', 'Joy', 'Sad', 'Surprise', 'Neutral')
+
+nd_facs_df <- purrr::map(nd_files, readxl::read_xlsx,
+                         skip=9,
+                         col_types=c(rep("numeric", 10)),
+                         col_names=col_names) %>%
+    set_names(nd_subjects)  %>%
+    dplyr::bind_rows(.id = "subject")
+
+md_facs_df <- purrr::map(md_files, readxl::read_xlsx,
+                         skip=9,
+                         col_types=c(rep("numeric", 10)),
+                         col_names=col_names) %>%
+    set_names(md_subjects) %>%
+    dplyr::bind_rows(.id = "subject")
+
+feather::write_feather(nd_facs_df, here::here("study_df", "facs_nd.feather"))
+feather::write_feather(md_facs_df, here::here("study_df", "facs_md.feather"))
+rm(facs_files, nd_files, md_files, nd_subjects, md_subjects)
+```
+
+```{r}
+feather::
+```
+
+
+
+#ggplot(nd_df, aes(x=Time, y=`Lane Position`, group=subject)) +
+#    geom_line() +
+#    theme_bw() +
+#    labs(x = 'Time', y = 'Lane Position') +
+#    theme(legend.position = "none")
+
+#ggplot(md_df, aes(x=Time, y=`Lane Position`, group=subject)) +
+#    geom_line() + 
+#    theme_bw() +
+#    labs(x = 'Time', y = 'Lane Position') +
+#    theme(legend.position="none")
+```
+
+## R Markdown
+
+
+## Slide with Bullets
+
+- Bullet 1
+- Bullet 2
+- Bullet 3
+
+## Slide with R Output
+
+
+## Slide with Plot
+
+
