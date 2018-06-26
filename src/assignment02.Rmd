@@ -2,69 +2,64 @@
 title: "Distracted Driving Project"
 subtitle: "Assignment 2"
 author: Bryan Yu - bryanyu@tamu.edu
-output: pdf_document
+output: html_document
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-library(rstan)
+```{r setup, echo=FALSE, message=FALSE, cache=TRUE}
 library(here)
 library(conflicted)
 library(dplyr)
 library(purrr)
 library(ggplot2)
-
-rstan_options(auto_write=TRUE)
-options(mc.cores = parallel::detectCores())
-source(here('src', 'codebase', 'stan_utility.R'))
 ```
 
-```{r data, cache=TRUE, echo=FALSE}
+```{r data_import, cache=TRUE, echo=FALSE}
 dir_path <- here("data")
 subject <- dir_path %>% dir() %>% stringr::str_sub(0, 4)
 file_paths <- map(dir(here("data")), function(file_name) c(here("data", file_name)))
-
 index_data <- readxl::read_excel(here("etc", "Dataset-Table-Index.xlsx")) %>%
     dplyr::filter(stringr::str_detect(Subject, 'T[0-9]{3}'))
-    
 subject_bio <- index_data %>% 
     dplyr::filter(!is.na(Gender)) %>%
     select(subject=Subject, gender=Gender, age_group=`Age Group`)
-
 subject_test <- index_data %>%
     select(subject=Subject, session=Session, FACS, eye)
 drive_map <- c(1:8)
 names(drive_map) <- c("BL", "PD", "RD", "ND", "CD", "ED", "MD", "FD")
-
 phase_convert <- function(Time) {
-    if (Time < 80) {
-        return(1)
-    } else if (Time >= 80 & Time < 80 + 160) {
-        return(2)
-    } else if (Time >= 80 + 160 & Time < 80 + 160 + 240) {
-        return(3)
-    } else if (Time >= 80 + 160 + 240 & Time < 80 + 160 + 240 + 160) {
-        return(4)
-    } else {
-        return(5)
-    }
+    if (Time < 80) { return(1)
+    } else if (Time >= 80 & Time < 80 + 160) { return(2)
+    } else if (Time >= 80 + 160 & Time < 80 + 160 + 240) { return(3)
+    } else if (Time >= 80 + 160 + 240 & Time < 80 + 160 + 240 + 160) { return(4)
+    } else { return(5) }
 }
 
-df <- map(file_paths, read.csv) %>% 
-    set_names(subject) %>% 
-    bind_rows(.id = "Subject")
-df$Drive <- names(drive_map[df$Drive])
-df$phase <- map_dbl(df$Time, phase_convert)
-df <- df %>% 
-    dplyr::filter(Drive %in% c("ND", "MD")) %>%
-    mutate(phase = as.factor(phase)) %>%
-    inner_join(subject_bio, by=c("Subject" = "subject"))
-
-nd_df <- df %>%
-    dplyr::filter(Drive == "ND") %>%
-    dplyr::filter(!between(Distance, 5000, 7000))
-
+#df <- map(file_paths, read.csv) %>% 
+#    set_names(subject) %>% 
+#    bind_rows(.id = "Subject")
+#df$Drive <- names(drive_map[df$Drive])
+#df$phase <- map_dbl(df$Time, phase_convert)
+#df <- df %>% 
+#    dplyr::filter(Drive %in% c("ND", "MD")) %>%
+#    mutate(phase = as.factor(phase)) %>%
+#    inner_join(subject_bio, by=c("Subject" = "subject"))
+#
+#nd_df <- df %>% dplyr::filter(Drive == "ND") 
+#md_df <- df %>% dplyr::filter(Drive == "MD") 
+#
+#feather::write_feather(nd_df, here("study_df", "nd.feather"))
+#feather::write_feather(md_df, here("study_df", "md.feather"))
+#feather::write_feather(df, here("study_df", "df.feather"))
 rm(file_paths, dir_path, index_data, phase_convert, drive_map)
+```
+
+```{r, echo=FALSE}
+nd_df <- feather::read_feather(here("study_df", "nd.feather"))
+md_df <- feather::read_feather(here("study_df", "md.feather"))
+df <- feather::read_feather(here("study_df", "df.feather"))
+
+nd_nolanechange <- nd_df %>% dplyr::filter(!between(Distance, 5000, 7000))
+md_nolanechange <- md_df %>% dplyr::filter(!between(Distance, 5000, 7000))
 ```
 
 ## 1. Summary
@@ -81,22 +76,21 @@ Dr. Akleman noted last week that facial expression would useful to incorporate i
 
 ## 2. Observations
 
-```{r friendly_data, echo=FALSE, message=FALSE, warning=FALSE, fig.width=3, fig.height=4}
-ggplot(df, aes(x=Distance, y=Lane.Position)) + 
+```{r friendly_data, echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(df, aes(x=Distance, y=Lane.Position)) +
     geom_line(aes(colour=phase)) +
     facet_grid(Drive ~ .) +
     theme_bw() +
     labs(x = 'Distance', y = 'Lane Position (m)') +
     theme(legend.position = "bottom")
 
-ggplot(nd_df, aes(x=Distance, y=Lane.Position)) + 
+ggplot(nd_nolanechange, aes(x=Distance, y=Lane.Position)) + 
     geom_point(aes(color=age_group), size=0.001) +
     theme_bw() +
     labs(x = 'Distance', y = 'Lane Position (m)') +
     theme(legend.position = "bottom")
 ```
 
-\newpage
 1. Lane deviation appears stationary, no growth/decay trend appears evident. Candidate for stochastic volatility model similar to financial returns for the return of an asset in discrete time$^2$. 
 
 2. Heavy tails in the distracted driving segment
@@ -129,9 +123,8 @@ missing_facs$subject
 
 * Missing lane position data for T060 / T061 in the Structured Data Set
 
-\newpage
-
-## 3. Current model
+## 4. Current model
+### 4.1 A simple model
 #### 1. Conceptual analysis
 
 68 drivers from two different age groups and genders with pupil dilation recorded at each point in space. Lane position is recorded at each point of distance and with likely little change in the normal driving scenario after not including the lane change.
@@ -152,7 +145,7 @@ sd_lane <- function(df) sd(df$Lane.Position, na.rm=TRUE)
 mean_leye <- function(df) sd(df$Rt.Pupil.Diameter, na.rm=TRUE)
 mean_reye <- function(df) sd(df$Lft.Pupil.Diameter, na.rm=TRUE)
 
-nd_nest <- nd_df %>% group_by(Subject) %>% tidyr::nest() %>%
+nd_nest <- nd_nolanechange %>% group_by(Subject) %>% tidyr::nest() %>%
     inner_join(subject_bio, by=c("Subject" = "subject")) %>%
     mutate(avg_lane=map_dbl(data, mean_lane), 
            sd_lane=map_dbl(data, sd_lane),
@@ -169,11 +162,16 @@ $$\mu_n\sim \mu_0+ \mu_{age} $$
 
 where $n \in \{ 1, \ldots, 68 \}$ and $j =$ distance
 
-```{r}
-writeLines(readLines(here("src", "stan", "nd_no_lanechange.stan")))
+```{r, echo=FALSE, message=FALSE, include=FALSE}
+library(rstan) 
+library(here)
+
+rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores())
+here("src", "stan", "nd_nolanechange.stan")
 ```
 
-## 4. Questions
+### 5. Questions
 
 1. What is lane offset? Not specified in the description 
 
