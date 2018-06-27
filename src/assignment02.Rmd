@@ -37,9 +37,9 @@ phase_convert <- function(Time) {
 
 tp_files <- dir(here::here("structured_study_data"),
                 pattern="*.tp", recursive=TRUE, full.names=TRUE)
-tp_subjects <- stringr::str_sub(tp_files, 65, 68)
+tp_subjects <- stringr::str_sub(tp_files, 71, 74)
 tp_data <- purrr::map(tp_files, readLines, warn=FALSE) %>%
-    set_names(tp_subjects) %>%
+    purrr::set_names(tp_subjects) %>%
     dplyr::bind_rows(.id="subject") %>%
     tidyr::gather(subject, personality)
 tai_data <- tp_data %>% 
@@ -54,7 +54,7 @@ psych_df <- dplyr::inner_join(tai_data, typeab_data, by="subject")
 rm(tp_files, tp_subjects, tp_data, tai_data, typeab_data)    
 
 df <- purrr::map(file_paths, read.csv) %>% 
-    set_names(subject) %>% 
+    purrr::set_names(subject) %>% 
     dplyr::bind_rows(.id = "Subject")
 df$Drive <- names(drive_map[df$Drive])
 df$phase <- purrr::map_dbl(df$Time, phase_convert)
@@ -71,6 +71,7 @@ feather::write_feather(nd_df, here::here("study_df", "nd.feather"))
 feather::write_feather(md_df, here::here("study_df", "md.feather"))
 feather::write_feather(df, here::here("study_df", "df.feather"))
 feather::write_feather(subject_bio, here::here("study_df", "subject_bio.feather"))
+feather::write_feather(psych_df, here::here("study_df", "psych.feather"))
 
 #facs_files <- dir(here::here("structured_study_data"),
 #                 pattern="*.FACS", recursive=TRUE, full.names=TRUE)

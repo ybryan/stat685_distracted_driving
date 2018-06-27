@@ -1,11 +1,10 @@
 ---
-#title: "STAT 685: Distracted Driving"
-#subtitle: "Assignment 3"
-#author: "Bryan Yu: bryanyu@tamu.edu"
-output: html_document
-#output: 
-#    slidy_presentation:
-#        highlight: pygments
+title: "STAT 685: Distracted Driving"
+subtitle: "Assignment 3"
+author: "Bryan Yu: bryanyu@tamu.edu"
+output: 
+    slidy_presentation:
+        highlight: pygments
 ---
 
 ```{r setup, include=FALSE}
@@ -18,11 +17,17 @@ library(ggplot2)
 library(magrittr)
 library(dplyr)
 
-nd_df <- feather::read_feather(here::here("study_df", "nd.feather"))
-md_df <- feather::read_feather(here::here("study_df", "md.feather"))
-df <- feather::read_feather(here::here("study_df", "df.feather"))
+df_feather <- feather::read_feather(here::here("study_df", "df.feather"))
 subject_bio <- feather::read_feather(here::here("study_df", "subject_bio.feather"))
 
+df <- df_feather %>% 
+    dplyr::select(Subject, Distance, Lane.Position, Drive, phase,
+                  Gaze.X.Pos, Gaze.Y.Pos, Lft.Pupil.Diameter, Rt.Pupil.Diameter,
+                  gender, age_group, tai, type_ab) %>%
+    dplyr::mutate(age_group=as.factor(age_group))
+
+nd_df <- df %>% dplyr::filter(Drive == "ND") 
+md_df <- df %>% dplyr::filter(Drive == "MD") 
 nd_nolanechange <- nd_df %>% dplyr::filter(!dplyr::between(Distance, 5000, 7000))
 md_nolanechange <- md_df %>% dplyr::filter(!dplyr::between(Distance, 5000, 7000))
 ```
@@ -45,19 +50,26 @@ ggplot(df, aes(x=Distance, y=Lane.Position)) +
     theme(legend.position = "bottom")
 ```
 
-## First model:
+## Model 1.0: First down
 
-Trying to capture normal driving volatility without lane change and with age cohort
+Trying to capture normal driving behavior without lane change and with age cohort
 
-$$y_n \sim \mathcal{N}(\mu_n, \sigma_n)$$
+```{r}
+ggplot(nd_nolanechange, aes(x=Distance, y=Lane.Position)) + 
+    geom_line(aes(color=Subject)) +
+    facet_grid(. ~ age_group)  +
+    theme_bw() +
+    labs(x = 'Distance', y = 'Lane Position (m)') +
+    theme(legend.position = "none")
+```
 
-$$\mu_n\sim \mu_0+ \mu_{age} $$
+$$y_n(i) \sim \mathcal{N}(\mu_n, \sigma_n)$$
 
-where $n \in \{ 1, \ldots, 68 \}$ and $j =$ distance
+$$\mu_n\sim \mu_0+ \mu_{age} + \beta x_i$$
 
 ### 1. Conceptual analysis
 
-68 drivers from two different age groups and genders with pupil dilation recorded at each point in space. Lane position is recorded at each point of distance and with likely little change in the normal driving scenario after not including the lane change.
+68 drivers from two different age groups and genders with pupil dilation recorded at each point in space (distance). Lane position is recorded at each point of distance and with likely little change in the normal driving scenario after not including the lane change.
 
 ### 2. Define Observations
 ```{r}
