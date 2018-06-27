@@ -16,13 +16,21 @@ df <- df_feather %>%
     dplyr::select(Subject, Distance, Lane.Position, Drive, phase,
                   Gaze.X.Pos, Gaze.Y.Pos, Lft.Pupil.Diameter, Rt.Pupil.Diameter,
                   gender, age_group, tai, type_ab) %>%
-    dplyr::mutate(age_group=as.factor(age_group))
+    dplyr::mutate(age_group=as.factor(age_group),
+                  gender=as.factor(gender),
+                  Drive=as.factor(Drive))
 
 nd_df <- df %>% dplyr::filter(Drive == "ND") 
 md_df <- df %>% dplyr::filter(Drive == "MD") 
 nd_nolanechange <- nd_df %>% dplyr::filter(!dplyr::between(Distance, 5000, 7000))
 md_nolanechange <- md_df %>% dplyr::filter(!dplyr::between(Distance, 5000, 7000))
 source(here::here('src', 'codebase', 'stan_utility.R'))
+rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores())
+```
+
+```{r}
+str(df)
 ```
 
 ## Objective
@@ -45,9 +53,9 @@ ggplot(df, aes(x=Distance, y=Lane.Position)) +
 
 ## Model 1.0: First down
 
-Trying to capture normal driving behavior without lane change and with age cohort
+Trying to capture normal driving behavior without lane change and with age cohort and pupil dilation
 
-```{r}
+```{r, echo=FALSE, fig.align="center"}
 ggplot(nd_nolanechange, aes(x=Distance, y=Lane.Position)) + 
     geom_line(aes(color=Subject)) +
     facet_grid(. ~ age_group)  +
@@ -58,9 +66,11 @@ ggplot(nd_nolanechange, aes(x=Distance, y=Lane.Position)) +
 
 $$y_n(i) \sim \mathcal{N}(\mu_n, \sigma_n)$$
 
-$$\mu_n\sim \mu_0+ \mu_{age} + \beta x_i$$
+$$\mu_n\sim \alpha+ \mu_{age} + \beta x_i$$
 
-where $n \in \{ 1, \ldots, 68 \}$ and $i:$ Distance
+where $n \in \{ 1, \ldots, 68 \}$, $i:$ Distance, and $x_i$: pupil dilation
+
+Assuming pupil dilation is matched evenly, picking right eye for simplicity.
 
 ### 1. Conceptual analysis
 
@@ -68,7 +78,7 @@ where $n \in \{ 1, \ldots, 68 \}$ and $i:$ Distance
 
 ### 2. Define Observations
 ```{r}
-writeLines(readLines(here::here("src", "stan", "nd_no_lanechange.stan"), n=5))
+writeLines(readLines(here::here("src", "stan", "nd_no_lanechange.stan"), n=7))
 ```
 
 ### 3. Identify relevant summary statistics 
@@ -94,7 +104,36 @@ nd_nest <- nd_nolanechange %>% group_by(Subject) %>% tidyr::nest() %>%
 nd_nest %>% group_by(age_group) %>% summarize(mean(avg_lane), mean(sd_lane))
 rm(mean_lane, mean_leye, mean_reye, sd_lane)
 ```
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+
+### 4. Build a generative model
+
+Each lane is 3.65m and is measured from right edge of the rightmost lane, so $\mu_0 \sim \mathcal{N} (1.825, .25).
+
+```{r}
+
 ```
 
+### 5. Analyze the generative ensemble
+### 6. Fix the observations and evaluate
+
+How to incorporate different number of pupil values?
+
+```{r}
+stan(file=here::here("src", "stan", "nd_no_lanechange.stan"))
+```
+
+
+### 7. Posterior Predictive
+
+
+## Model 2.0: Different perspective
+
+Relevant summary statistics should include autocorrelation term. It seems obvious now that drivers are continually correcting for drift by knowing their previous lane position and adjusting to stay in the middle of the lane.
+
+
+
+## Questions:
+
+1. How to deal with missing data?
+    * Incorrect data (0 for eye pupil)
+2. How to incorporate different number of pupil values / distance values?

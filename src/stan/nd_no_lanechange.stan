@@ -1,24 +1,25 @@
 data {
+    int<lower=1> N;             // number of drivers
     int<lower=1> J;             // number of age cohorts
-    real y[J];                  // mean lane position of each driver
-    real<lower=0> sigma[J];     // sd lane position of each driver
+    int<lower=1> I;             // number of distance data points
+    real y[N];                  // mean lane position by driver
+    vector[I] x;                // eye pupil diameter
 }
 
 parameters {
-    real mu;                // population lane position
-    real<lower=0> tau;      // population sd lane position
-    vector[J] eta;          // age-level errors
-}
-
-transformed parameters {
-    vector[J] theta;        // age effect
-    theta = mu + tau*eta;
+    real alpha;             // population lane position
+    real<lower=0> sigma;    // population sd of lane position
+    real beta;              // eye pupil effect
+    vector[J] mu;           // age cohort effect
 }
 
 model {
-    eta ~ normal(0, 1);
-    sigma ~ cauchy(0, 10);
+    alpha ~ normal(1.825, 1);
+    sigma ~ cauchy(0, 4);
+    beta ~ normal(0, 2.5);
 
-    for (j in 1:j)
-        y[j] ~ normal(theta[j], sigma[j]);
+    for (n in 1:N)
+        for (j in 1:J)
+            for (i in 1:I)
+                y[n] ~ normal(alpha + mu[j] + beta * x[i], sigma);
 }
