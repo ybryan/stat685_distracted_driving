@@ -3,7 +3,16 @@ data {
     int<lower=1> J;             // number of age cohorts
     int<lower=1> I;             // number of distance data points
     real y[N];                  // mean lane position by driver
-    vector[I] x;                // eye pupil diameter
+    vector[I] eta;                // eye pupil diameter
+    /*
+        distracted -> higher sd
+        y_n <- sd(ts)
+        y_n <- alpha + age_cohort + beta * mean(x) (eta)
+
+        1. Filter out missing eye tracking day :: Why?
+            * Histogram (sd) of eye tracking vs non-eye tracking
+        2. Summary statistic for acf
+    */
 }
 
 parameters {
@@ -18,8 +27,8 @@ model {
     sigma ~ cauchy(0, 4);
     beta ~ normal(0, 2.5);
 
-    for (n in 1:N)
-        for (j in 1:J)
+    for (j in 1:J)
+        for (n in 1:N)
             for (i in 1:I)
                 y[n] ~ normal(alpha + mu[j] + beta * x[i], sigma);
 }
