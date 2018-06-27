@@ -1,33 +1,35 @@
 ---
-title: "STAT 685: Distracted Driving"
-subtitle: "Assignment 3"
-author: "Bryan Yu: bryanyu@tamu.edu"
-output: 
-    slidy_presentation:
-        highlight: pygments
+#title: "STAT 685: Distracted Driving"
+#subtitle: "Assignment 3"
+#author: "Bryan Yu: bryanyu@tamu.edu"
+output: html_document
+#output: 
+#    slidy_presentation:
+#        highlight: pygments
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE)
-library(ggplot2)
-library(magrittr)
 source(here::here('src', 'codebase', 'stan_utility.R'))
 ```
 
-```{r data}
-nd_facs_df <- feather::read_feather(here::here("study_df", "facs_nd.feather"))
-md_facs_df <- feather::read_feather(here::here("study_df", "facs_md.feather"))
+```{r data, message=FALSE}
+library(ggplot2)
+library(magrittr)
+library(dplyr)
+
 nd_df <- feather::read_feather(here::here("study_df", "nd.feather"))
 md_df <- feather::read_feather(here::here("study_df", "md.feather"))
 df <- feather::read_feather(here::here("study_df", "df.feather"))
+subject_bio <- feather::read_feather(here::here("study_df", "subject_bio.feather"))
 
 nd_nolanechange <- nd_df %>% dplyr::filter(!dplyr::between(Distance, 5000, 7000))
 md_nolanechange <- md_df %>% dplyr::filter(!dplyr::between(Distance, 5000, 7000))
 ```
 
-## Description
+## Objective
 
-- Determine how lane deviation volatility is affected by texting compared to non-stimulus driving 
+- Determine how lane deviation volatility is affected by sensorimotor driving (MD), aka texting while driving, compared to normal driving (ND)
     - Phases proceeding stimulus
 
 - Eye gazing / pupilation are explanatory variables to lane positioning / volatility
@@ -43,14 +45,49 @@ ggplot(df, aes(x=Distance, y=Lane.Position)) +
     theme(legend.position = "bottom")
 ```
 
-## First model: A incomplete pass
+## First model:
 
 Trying to capture normal driving volatility without lane change and with age cohort
 
 $$y_n \sim \mathcal{N}(\mu_n, \sigma_n)$$
+
 $$\mu_n\sim \mu_0+ \mu_{age} $$
 
 where $n \in \{ 1, \ldots, 68 \}$ and $j =$ distance
+
+### 1. Conceptual analysis
+
+68 drivers from two different age groups and genders with pupil dilation recorded at each point in space. Lane position is recorded at each point of distance and with likely little change in the normal driving scenario after not including the lane change.
+
+### 2. Define Observations
+```{r}
+writeLines(readLines(here::here("src", "stan", "nd_no_lanechange.stan"), n=5))
+```
+
+### 3. Identify relevant summary statistics 
+
+The standard deviation will be a useful summary statistic. Given the 4 lane highway, it would be possible but unlikely to see lane positions change by more than 4 meters, especially without a lane change. Might be able to see differences based on age.
+
+```{r, echo=FALSE, message=FALSE}
+library(dplyr)
+library(purrr)
+
+mean_lane <- function(df) mean(df$Lane.Position, na.rm=TRUE)
+sd_lane <- function(df) sd(df$Lane.Position, na.rm=TRUE)
+
+mean_leye <- function(df) sd(df$Rt.Pupil.Diameter, na.rm=TRUE)
+mean_reye <- function(df) sd(df$Lft.Pupil.Diameter, na.rm=TRUE)
+
+nd_nest <- nd_nolanechange %>% group_by(Subject) %>% tidyr::nest() %>%
+    inner_join(subject_bio, by=c("Subject" = "subject")) %>%
+    mutate(avg_lane=map_dbl(data, mean_lane), 
+           sd_lane=map_dbl(data, sd_lane),
+           r_dilation=map_dbl(data, mean_reye),
+           l_dilation=map_dbl(data, mean_leye))
+nd_nest %>% group_by(age_group) %>% summarize(mean(avg_lane), mean(sd_lane))
+rm(mean_lane, mean_leye, mean_reye, sd_lane)
+```
+
 
 ## Sampling methodology
 
@@ -60,22 +97,32 @@ where $n \in \{ 1, \ldots, 68 \}$ and $j =$ distance
 
 ## Facial expression data
 
-- Interesting multi-dimensional response to different stimuli (congitive, emotion, sensorimotor)
+- Multi-dimensional response to different stimuli (congitive, emotion, sensorimotor)
 
-- Not useful as variables for causal inference of lane volatility 
+- Zero inflated data difficult to distinguish uniqueness between normal driving and texting
 
-```{r facial_chart, message=FALSE, warning=FALSE, fig.align="center", fig.width=8}
-tall_df <- nd_facs_df %>% 
-     dplyr::filter(Time %% 1 == 0) %>%
-     tidyr::gather(emotion, value, -subject, -Frame, -Time)
+- Not immediately obvious that facial expression variables can be used for causal inference of lane volatility 
 
-ggplot(tall_df, aes(x=value, color=emotion)) +
-    geom_histogram() +
-    facet_grid(. ~ emotion) +
+```{r facial_chart, message=FALSE, warning=FALSE, fig.align="center"}
+nd_facs_df <- feather::read_feather(here::here("study_df", "facs_nd.feather"))
+md_facs_df <- feather::read_feather(here::here("study_df", "facs_md.feather"))
+
+all_facs <- list(nd_facs_df, md_facs_df) %>%
+    set_names(c("ND", "MD")) %>%
+    dplyr::bind_rows(.id = "DriveType")
+
+tall_df <- all_facs %>% 
+    dplyr::filter(Time %% 1 == 0) %>%
+    tidyr::gather(emotion, value, -subject, -Frame, -Time, -DriveType)
+    
+ggplot(tall_df, aes(x=value, colour=DriveType, fill=DriveType)) +
+    geom_histogram(alpha=0.5) +
+    facet_grid(DriveType ~ emotion) +
     theme_bw() +
-    labs(x = 'Time', y = 'Emotional') +
-    theme(legend.position = "none")
+    labs(x = 'Facial Expression', y = '') +
+    theme(legend.position = "bottom",
+          axis.text.x = element_text(angle=90, hjust=1))
+rm(nd_facs_df, md_facs_df, all_facs, tall_df)
 ```
 
-
-
+* Downsampled from per frame sampling to per second sampling

@@ -14,16 +14,17 @@ library(ggplot2)
 ```
 
 ```{r data_import, cache=TRUE, echo=FALSE}
-dir_path <- here("data")
+library(magrittr)
+dir_path <- here::here("data")
 subject <- dir_path %>% dir() %>% stringr::str_sub(0, 4)
-file_paths <- map(dir(here("data")), function(file_name) c(here("data", file_name)))
-index_data <- readxl::read_excel(here("etc", "Dataset-Table-Index.xlsx")) %>%
+file_paths <- purrr::map(dir(here::here("data")), function(file_name) c(here::here("data", file_name)))
+index_data <- readxl::read_excel(here::here("etc", "Dataset-Table-Index.xlsx")) %>%
     dplyr::filter(stringr::str_detect(Subject, 'T[0-9]{3}'))
 subject_bio <- index_data %>% 
     dplyr::filter(!is.na(Gender)) %>%
-    select(subject=Subject, gender=Gender, age_group=`Age Group`)
+    dplyr::select(subject=Subject, gender=Gender, age_group=`Age Group`)
 subject_test <- index_data %>%
-    select(subject=Subject, session=Session, FACS, eye)
+    dplyr::select(subject=Subject, session=Session, FACS, eye)
 drive_map <- c(1:8)
 names(drive_map) <- c("BL", "PD", "RD", "ND", "CD", "ED", "MD", "FD")
 phase_convert <- function(Time) {
@@ -34,22 +35,42 @@ phase_convert <- function(Time) {
     } else { return(5) }
 }
 
-#df <- map(file_paths, read.csv) %>% 
-#    set_names(subject) %>% 
-#    bind_rows(.id = "Subject")
-#df$Drive <- names(drive_map[df$Drive])
-#df$phase <- map_dbl(df$Time, phase_convert)
-#df <- df %>% 
-#    dplyr::filter(Drive %in% c("ND", "MD")) %>%
-#    mutate(phase = as.factor(phase)) %>%
-#    inner_join(subject_bio, by=c("Subject" = "subject"))
-#
-#nd_df <- df %>% dplyr::filter(Drive == "ND") 
-#md_df <- df %>% dplyr::filter(Drive == "MD") 
-#
-#feather::write_feather(nd_df, here("study_df", "nd.feather"))
-#feather::write_feather(md_df, here("study_df", "md.feather"))
-#feather::write_feather(df, here("study_df", "df.feather"))
+tp_files <- dir(here::here("structured_study_data"),
+                pattern="*.tp", recursive=TRUE, full.names=TRUE)
+tp_subjects <- stringr::str_sub(tp_files, 65, 68)
+tp_data <- purrr::map(tp_files, readLines, warn=FALSE) %>%
+    set_names(tp_subjects) %>%
+    dplyr::bind_rows(.id="subject") %>%
+    tidyr::gather(subject, personality)
+tai_data <- tp_data %>% 
+    dplyr::filter(stringr::str_detect(personality, 'TAI')) %>%
+    dplyr::mutate(tai=as.numeric(stringr::str_replace(personality, "TAI:", ""))) %>%
+    dplyr::select(-personality)
+typeab_data <- tp_data %>% 
+    dplyr::filter(stringr::str_detect(personality, 'Type AB:')) %>%
+    dplyr::mutate(type_ab=as.numeric(stringr::str_replace(personality, "Type AB:", ""))) %>%
+    dplyr::select(-personality)
+psych_df <- dplyr::inner_join(tai_data, typeab_data, by="subject")
+rm(tp_files, tp_subjects, tp_data, tai_data, typeab_data)    
+
+df <- purrr::map(file_paths, read.csv) %>% 
+    set_names(subject) %>% 
+    dplyr::bind_rows(.id = "Subject")
+df$Drive <- names(drive_map[df$Drive])
+df$phase <- purrr::map_dbl(df$Time, phase_convert)
+df <- df %>% 
+    dplyr::filter(Drive %in% c("ND", "MD")) %>%
+    dplyr::mutate(phase = as.factor(phase)) %>%
+    dplyr::inner_join(subject_bio, by=c("Subject" = "subject")) %>%
+    dplyr::inner_join(psych_df, by=c("Subject"= "subject"))
+
+nd_df <- df %>% dplyr::filter(Drive == "ND") 
+md_df <- df %>% dplyr::filter(Drive == "MD") 
+
+feather::write_feather(nd_df, here::here("study_df", "nd.feather"))
+feather::write_feather(md_df, here::here("study_df", "md.feather"))
+feather::write_feather(df, here::here("study_df", "df.feather"))
+feather::write_feather(subject_bio, here::here("study_df", "subject_bio.feather"))
 
 #facs_files <- dir(here::here("structured_study_data"),
 #                 pattern="*.FACS", recursive=TRUE, full.names=TRUE)
