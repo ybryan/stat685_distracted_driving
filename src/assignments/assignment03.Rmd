@@ -54,52 +54,22 @@ ggplot(df, aes(x=Distance, y=Lane.Position)) +
 
 Trying to capture normal driving behavior without lane change and with age cohort
 
-```{r}
+```{r, fig.width=4, fig.height=4, fig.align="center"}
 ggplot(nd_nolanechange, aes(x=Distance, y=Lane.Position)) + 
     geom_line(aes(color=Subject)) +
     facet_grid(. ~ age_group)  +
     theme_bw() +
     labs(x = 'Distance', y = 'Lane Position (m)') +
-    theme(legend.position = "none")
+    theme(legend.position = "none", axis.text.x = element_text(angle=70, hjust=1))
 ```
 
-$$y_n(i) \sim \mathcal{N}(\mu_n, \sigma_n)$$
 
-$$\mu_n\sim \mu_0+ \mu_{age} + \beta x_i$$
+$$y_n \sim \mathcal{N}(\alpha + \mu_{i} + \beta x_{n}, \sigma)$$
 
-### 1. Conceptual analysis
+Data: $y_n$: Log std deviation of lane position for each individual
 
-68 drivers from two different age groups and genders with pupil dilation recorded at each point in space (distance). Lane position is recorded at each point of distance and with likely little change in the normal driving scenario after not including the lane change.
-
-### 2. Define Observations
-```{r}
-writeLines(readLines(here::here("src", "stan", "nd_no_lanechange.stan"), n=5))
-```
-
-### 3. Identify relevant summary statistics 
-
-The standard deviation will be a useful summary statistic. Given the 4 lane highway, it would be possible but unlikely to see lane positions change by more than 4 meters, especially without a lane change. Might be able to see differences based on age.
-
-```{r, echo=FALSE, message=FALSE}
-library(dplyr)
-library(purrr)
-
-mean_lane <- function(df) mean(df$Lane.Position, na.rm=TRUE)
-sd_lane <- function(df) sd(df$Lane.Position, na.rm=TRUE)
-
-mean_leye <- function(df) sd(df$Rt.Pupil.Diameter, na.rm=TRUE)
-mean_reye <- function(df) sd(df$Lft.Pupil.Diameter, na.rm=TRUE)
-
-nd_nest <- nd_nolanechange %>% group_by(Subject) %>% tidyr::nest() %>%
-    inner_join(subject_bio, by=c("Subject" = "subject")) %>%
-    mutate(avg_lane=map_dbl(data, mean_lane), 
-           sd_lane=map_dbl(data, sd_lane),
-           r_dilation=map_dbl(data, mean_reye),
-           l_dilation=map_dbl(data, mean_leye))
-nd_nest %>% group_by(age_group) %>% summarize(mean(avg_lane), mean(sd_lane))
-rm(mean_lane, mean_leye, mean_reye, sd_lane)
-```
-
+$$p(\alpha) \sim \mathcal{N}(1.825, 0.25)$$
+$$p(\mu_i) \sim \mathcal{N}(, )$$
 
 ## Sampling methodology
 
