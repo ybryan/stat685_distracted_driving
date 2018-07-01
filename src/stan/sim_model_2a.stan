@@ -1,9 +1,9 @@
 // Generate Data 2a
 // fit_hetero <- stan(model_file="generate_data_2a.stan", iter=1, warmup=0, algorithm=Fixed_param)
 transformed data {
-  real alpha0 = 1.5
+  real alpha0 = 1.5;
   int N_age = 2;
-  vector alpha = [0.25, -0.25]';
+  vector[2] alpha = [0.25, -0.25]';
 
   real beta = -2;
   
@@ -12,12 +12,12 @@ transformed data {
   int age_prime[N_prime];
 
   for (n in 1:N_prime)
-    age_prime[n] = categorical_rng([0.5, 0.5]');
+    age_prime[n] = categorical_rng([0.5, 0.5]'); // assigns category to each age_prime
 }
 
 generated quantities {
   int N = N_prime;
-  int<lower=1, upper=N_age> age = age_prime;
+  int<lower=1, upper=N_age> age[N_prime] = age_prime;
 
   real x[N_prime];
   real log_y[N_prime];

@@ -15,6 +15,7 @@ nd_drive <- nd_nolanechange %>%
     dplyr::group_by(Subject) %>% 
     dplyr::summarize(sd_lane = log(sd(Lane.Position)))
 
+# =========== Generate Data ==================================================
 # Simulated model 1a: Homogeneous population (age)
 #fit_homo_a <- stan(here::here('src', 'stan', 'sim_model_1a.stan'),
 #                 iter=1, chains=1, warmup=0, algorithm='Fixed_param')
@@ -27,5 +28,14 @@ la <- rstan::extract(fit_homo_b, permuted=TRUE)
 a <- rstan::extract(fit_homo_b, permuted=FALSE)
 
 # Simulated model 2a: Heterogeneous popuations (age cohor)
-fit_hetero <- stan(here::here('src', 'stan', 'sim_model_2a.stan'),
-                   iter=1, chains=1, warmup=0, algorithm='Fixed_param')
+#fit_hetero <- stan(here::here('src', 'stan', 'sim_model_2a.stan'),
+#                   iter=1, chains=1, warmup=0, algorithm='Fixed_param')
+
+# Simulated model 2b: Heterogeneous popuations (age cohor) with functional call
+fit_hetero <- stan(here::here('src', 'stan', 'sim_model_2b.stan'),
+                   iter=100, chains=1, warmup=0, algorithm='Fixed_param')
+
+lb <- rstan::extract(fit_homo_b, permuted=TRUE)
+b <- rstan::extract(fit_homo_b, permuted=FALSE)
+
+# ========== Fit data to model ===============================================
