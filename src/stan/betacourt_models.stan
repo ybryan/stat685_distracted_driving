@@ -1,34 +1,3 @@
-// Generate Data 1b
-transformed data {
-  real alpha = 1;
-  real beta = -2;
-  real<lower=0> sigma = 0.5;
-}
-
-generated quantities {
-  real x = normal_rng(2, 1);
-  real log_y = normal_rng(beta * x + alpha, sigma);
-}
-
-// fit <- stan(model_file="generate_data_1b.stan", iter=100, warmup=0, algorithm=Fixed_param)
-
-// Generate Data 2a
-transformed data {
-  real alpha0 = 1.5
-
-  int N_age = 2;
-  vector alpha = [0.25, -0.25]';
-
-  real beta = -2;
-  real<lower=0> sigma = 0.5;
-
-  int N_prime = 100;
-  int age_prime[N_prime];
-
-  for (n in 1:N_prime)
-    age_prime[n] = categorical_rng([0.5, 0.5]');
-}
-
 generated quantities {
   int N = N_prime;
   int<lower=1, upper=N_age> age = age_prime;

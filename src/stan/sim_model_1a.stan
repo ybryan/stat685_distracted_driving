@@ -1,9 +1,9 @@
 // Homogeneous population between two age cohorts
 // fit_homo <- stan(model_file="sim_model_1a.stan", iter=1, warmup=0, algorithm="Fixed_param")
 transformed data {
-  int N_prime = 68;
+  int N_prime = 100;
   real alpha = 1.825;
-  real beta = -0.1;
+  real beta = -0.2;
   real<lower=0> sigma = 0.5;
 }
 
