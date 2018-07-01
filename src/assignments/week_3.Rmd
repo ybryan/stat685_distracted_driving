@@ -17,19 +17,13 @@ library(ggplot2)
 library(magrittr)
 library(dplyr)
 
-df_feather <- feather::read_feather(here::here("study_df", "df.feather"))
-subject_bio <- feather::read_feather(here::here("study_df", "subject_bio.feather"))
+df <- feather::read_feather(here::here("study_df", "df_select.feather"))
+subject_df <- feather::read_feather(here::here("study_df", "subject_df.feather"))
 
-df <- df_feather %>% 
-    dplyr::select(Subject, Distance, Lane.Position, Drive, phase,
-                  Gaze.X.Pos, Gaze.Y.Pos, Lft.Pupil.Diameter, Rt.Pupil.Diameter,
-                  gender, age_group, tai, type_ab) %>%
-    dplyr::mutate(age_group=as.factor(age_group))
-
-nd_df <- df %>% dplyr::filter(Drive == "ND") 
-md_df <- df %>% dplyr::filter(Drive == "MD") 
-nd_nolanechange <- nd_df %>% dplyr::filter(!dplyr::between(Distance, 5000, 7000))
-md_nolanechange <- md_df %>% dplyr::filter(!dplyr::between(Distance, 5000, 7000))
+nd_nolanechange <- df %>% dplyr::filter(Drive == "ND") %>% 
+    dplyr::filter(!dplyr::between(Distance, 5000, 7000))
+md_nolanechange <- df %>% dplyr::filter(Drive == "MD")  %>%
+    dplyr::filter(!dplyr::between(Distance, 5000, 7000))
 ```
 
 ## Objective

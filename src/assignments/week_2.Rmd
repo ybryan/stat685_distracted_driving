@@ -2,8 +2,10 @@
 title: "Distracted Driving Project"
 subtitle: "Assignment 2"
 author: Bryan Yu - bryanyu@tamu.edu
-output: html_document
+output: pdf_document
 ---
+
+## 0. Data prep
 
 ```{r setup, echo=FALSE, message=FALSE, cache=TRUE}
 library(here)
@@ -16,7 +18,7 @@ library(ggplot2)
 ```{r data_import, cache=TRUE, echo=FALSE}
 library(magrittr)
 dir_path <- here::here("data")
-subject <- dir_path %>% dir() %>% stringr::str_sub(0, 4)
+subject <- dir_path %>% dir() %>% stringr::str_match('T[0-9]{3}')
 file_paths <- purrr::map(dir(here::here("data")), function(file_name) c(here::here("data", file_name)))
 index_data <- readxl::read_excel(here::here("etc", "Dataset-Table-Index.xlsx")) %>%
     dplyr::filter(stringr::str_detect(Subject, 'T[0-9]{3}'))
@@ -37,7 +39,7 @@ phase_convert <- function(Time) {
 
 tp_files <- dir(here::here("structured_study_data"),
                 pattern="*.tp", recursive=TRUE, full.names=TRUE)
-tp_subjects <- stringr::str_sub(tp_files, 71, 74)
+tp_subjects <- stringr::str_match(tp_files, "(T[0-9]{3}).tp")[, 2]
 tp_data <- purrr::map(tp_files, readLines, warn=FALSE) %>%
     purrr::set_names(tp_subjects) %>%
     dplyr::bind_rows(.id="subject") %>%
@@ -58,60 +60,62 @@ df <- purrr::map(file_paths, read.csv) %>%
     dplyr::bind_rows(.id = "Subject")
 df$Drive <- names(drive_map[df$Drive])
 df$phase <- purrr::map_dbl(df$Time, phase_convert)
-df <- df %>% 
+df_feather <- df %>% 
     dplyr::filter(Drive %in% c("ND", "MD")) %>%
-    dplyr::mutate(phase = as.factor(phase)) %>%
-    dplyr::inner_join(subject_bio, by=c("Subject" = "subject")) %>%
-    dplyr::inner_join(psych_df, by=c("Subject"= "subject"))
+    dplyr::mutate(phase = as.factor(phase))
 
-nd_df <- df %>% dplyr::filter(Drive == "ND") 
-md_df <- df %>% dplyr::filter(Drive == "MD") 
+subject_df <- subject_bio %>% dplyr::inner_join(psych_df, by=c("subject"= "subject"))
 
-feather::write_feather(nd_df, here::here("study_df", "nd.feather"))
-feather::write_feather(md_df, here::here("study_df", "md.feather"))
+df <- df_feather %>%  dplyr::select(
+    Subject, Distance, Lane.Position, Drive, phase, 
+    Gaze.X.Pos, Gaze.Y.Pos, Lft.Pupil.Diameter, Rt.Pupil.Diameter)
+    
 feather::write_feather(df, here::here("study_df", "df.feather"))
-feather::write_feather(subject_bio, here::here("study_df", "subject_bio.feather"))
-feather::write_feather(psych_df, here::here("study_df", "psych.feather"))
+feather::write_feather(df, here::here("study_df", "df_select.feather"))
+feather::write_feather(subject_df, here::here("study_df", "subject_df.feather"))
 
-#facs_files <- dir(here::here("structured_study_data"),
-#                 pattern="*.FACS", recursive=TRUE, full.names=TRUE)
-#nd_files <- facs_files[stringr::str_detect(facs_files, "ND")]
-#md_files <- facs_files[stringr::str_detect(facs_files, "MD")]
-
-#nd_subjects <- stringr::str_sub(nd_files, 70, 73)
-#md_subjects <- stringr::str_sub(md_files, 70, 73)
-
-#col_names <- c('Frame', 'Time', 'Anger', 'Contempt', 'Disgust',
-#               'Fear', 'Joy', 'Sad', 'Surprise', 'Neutral')
-
-#nd_facs_df <- purrr::map(nd_files, readxl::read_xlsx,
-#                         skip=9,
-#                         col_types=c(rep("numeric", 10)),
-#                         col_names=col_names) %>%
-#    set_names(nd_subjects)  %>%
-#    dplyr::bind_rows(.id = "subject")
-
-#md_facs_df <- purrr::map(md_files, readxl::read_xlsx,
-#                         skip=9,
-#                         col_types=c(rep("numeric", 10)),
-#                         col_names=col_names) %>%
-#    set_names(md_subjects) %>%
-#    dplyr::bind_rows(.id = "subject")
-
-#feather::write_feather(nd_facs_df, here::here("study_df", "facs_nd.feather"))
-#feather::write_feather(md_facs_df, here::here("study_df", "facs_md.feather"))
-#rm(facs_files, nd_files, md_files, nd_subjects, md_subjects)
-#```
+rm(subject_bio, psych_df, subject, df_feather)
 rm(file_paths, dir_path, index_data, phase_convert, drive_map)
 ```
 
-```{r, echo=FALSE}
-nd_df <- feather::read_feather(here("study_df", "nd.feather"))
-md_df <- feather::read_feather(here("study_df", "md.feather"))
-df <- feather::read_feather(here("study_df", "df.feather"))
+```{r facs_files}
+facs_files <- dir(here::here("structured_study_data"),
+                 pattern="*.FACS", recursive=TRUE, full.names=TRUE)
+nd_files <- facs_files[stringr::str_detect(facs_files, "ND")]
+md_files <- facs_files[stringr::str_detect(facs_files, "MD")]
 
-nd_nolanechange <- nd_df %>% dplyr::filter(!between(Distance, 5000, 7000))
-md_nolanechange <- md_df %>% dplyr::filter(!between(Distance, 5000, 7000))
+nd_subjects <- stringr::str_match('T0[0=9]{2}')
+md_subjects <- stringr::str_match('T0[0=9]{2}')
+
+col_names <- c('Frame', 'Time', 'Anger', 'Contempt', 'Disgust',
+               'Fear', 'Joy', 'Sad', 'Surprise', 'Neutral')
+
+nd_facs_df <- purrr::map(nd_files, readxl::read_xlsx,
+                         skip=9,
+                         col_types=c(rep("numeric", 10)),
+                         col_names=col_names) %>%
+    set_names(nd_subjects)  %>%
+    dplyr::bind_rows(.id = "subject")
+
+md_facs_df <- purrr::map(md_files, readxl::read_xlsx,
+                         skip=9,
+                         col_types=c(rep("numeric", 10)),
+                         col_names=col_names) %>%
+    set_names(md_subjects) %>%
+    dplyr::bind_rows(.id = "subject")
+
+feather::write_feather(nd_facs_df, here::here("study_df", "facs_nd.feather"))
+feather::write_feather(md_facs_df, here::here("study_df", "facs_md.feather"))
+rm(facs_files, nd_files, md_files, nd_subjects, md_subjects)
+```
+
+```{r, echo=FALSE}
+nd_nolanechange <- df %>% 
+    dplyr::filter(Drive=="ND") %>% 
+    dplyr::filter(!dplyr::between(Distance, 5000, 7000))
+md_nolanechange <- df %>% 
+    dplyr::filter(Drive=="MD") %>% 
+    dplyr::filter(!dplyr::between(Distance, 5000, 7000))
 ```
 
 ## 1. Summary
@@ -124,11 +128,12 @@ In order to familiarize myself with `Stan` and bayesian modeling, initial implem
 
 **Data set issues**
 
-Dr. Akleman noted last week that facial expression would useful to incorporate into the model. Due to data size constraints (57.5 GB), imported data into S3 and extracted *.FACs data. Will add to model in the future during feature engineering phase.
+Dr. Akleman noted last week that facial expression would useful to incorporate into the model. Due to data size constraints (57.5 GB), imported data into S3 and extracted \*.FACs data. Will add to model in the future during feature engineering phase.
+
 
 ## 2. Observations
 
-```{r friendly_data, echo=FALSE, message=FALSE, warning=FALSE}
+```{r, echo=FALSE}
 ggplot(df, aes(x=Distance, y=Lane.Position)) +
     geom_line(aes(colour=phase)) +
     facet_grid(Drive ~ .) +
@@ -136,7 +141,9 @@ ggplot(df, aes(x=Distance, y=Lane.Position)) +
     labs(x = 'Distance', y = 'Lane Position (m)') +
     theme(legend.position = "bottom")
 
-ggplot(nd_nolanechange, aes(x=Distance, y=Lane.Position)) + 
+ggplot(nd_nolanechange %>% 
+           dplyr::inner_join(subject_df, by=c("Subject"="subject")),
+       aes(x=Distance, y=Lane.Position)) + 
     geom_point(aes(color=age_group), size=0.001) +
     theme_bw() +
     labs(x = 'Distance', y = 'Lane Position (m)') +
@@ -198,7 +205,7 @@ mean_leye <- function(df) sd(df$Rt.Pupil.Diameter, na.rm=TRUE)
 mean_reye <- function(df) sd(df$Lft.Pupil.Diameter, na.rm=TRUE)
 
 nd_nest <- nd_nolanechange %>% group_by(Subject) %>% tidyr::nest() %>%
-    inner_join(subject_bio, by=c("Subject" = "subject")) %>%
+    inner_join(subject_df, by=c("Subject" = "subject")) %>%
     mutate(avg_lane=map_dbl(data, mean_lane), 
            sd_lane=map_dbl(data, sd_lane),
            r_dilation=map_dbl(data, mean_reye),
@@ -214,16 +221,7 @@ $$\mu_n\sim \mu_0+ \mu_{age} $$
 
 where $n \in \{ 1, \ldots, 68 \}$ and $j =$ distance
 
-```{r, echo=FALSE, message=FALSE, include=FALSE}
-library(rstan) 
-library(here)
-
-rstan_options(auto_write = TRUE)
-options(mc.cores = parallel::detectCores())
-here("src", "stan", "nd_nolanechange.stan")
-```
-
-### 5. Questions
+## 5. Questions
 
 1. What is lane offset? Not specified in the description 
 
