@@ -1,0 +1,68 @@
+---
+title: "Distracted Driving"
+subtitle: "STAN: simple model"
+author: Bryan Yu - ybryan@gmail.com
+output: html_document 
+---
+
+
+## Data Import 
+
+```{r setup, echo=FALSE, message=FALSE, warning=FALSE}
+
+library(magrittr)
+library(rstan)
+options(mc.cores = parallel::detectCores())
+rstan_options(auto_write = TRUE)
+
+df <- feather::read_feather(here::here("study_df", "df_select.feather"))
+subject_df <- feather::read_feather(here::here("study_df", "subject_df.feather"))
+nd_nolanechange <- df %>% dplyr::filter(Drive == "ND") %>% 
+    dplyr::filter( !dplyr::between(Distance, 5000, 7000))
+md_nolanechange <- df %>% dplyr::filter(Drive == "MD") %>% 
+    dplyr::filter(!dplyr::between(Distance, 5000, 7000))
+nd_drive <- nd_nolanechange %>% dplyr::group_by(Subject) %>% 
+    dplyr::summarize(sd_lane = log(sd(Lane.Position)))
+
+```
+
+## Data Analysis
+
+Missing data from the following:
+
+
+
+## Model 01: Simple regression for lane volatility
+
+### 1. Sufficient Statistics
+
+Mean standard deviation and then histogram of distribution
+
+### 2. Generate Data 
+
+**Simulated model 1a: Homogeneous population (age)**
+```{r sim_homo}
+
+fit_homo <- stan(here::here("src", "stan", "sim_model_1b.stan"),
+                 iter=1000, chains=1, warmup=0, algorithm="Fixed_param")
+la <- rstan::extract(fit_homo, permuted=TRUE)
+
+```
+
+** Simulated model 2b: Heterogeneous population (age)**
+```{r sim_hetero}
+
+fit_hetero <- stan(here::here("src", "stan", "sim_model_2b.stan"),
+                   iter=1000, chains=1, warmup=0, algorithm="Fixed_param")
+lb <- rstan::extract(fit_hetero, permuted=TRUE)
+
+```
+
+### 3. Analyze generative ensemble
+```{r}
+
+```
+
+
+## Model 02: More stuff
+

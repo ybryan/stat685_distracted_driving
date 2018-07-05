@@ -6,7 +6,7 @@ transformed data {
   vector[2] alpha = [0.25, -0.25]';
 
   real beta = -2;
-  
+
   real<lower=0> sigma = 0.5;
   int N_prime = 100;
   int age_prime[N_prime];
@@ -16,7 +16,7 @@ transformed data {
 }
 
 generated quantities {
-  int N = N_prime;
+  int N = N_prime;                              // extra line necessary to assign N_prime `generated quantities` block
   int<lower=1, upper=N_age> age[N_prime] = age_prime;
 
   real x[N_prime];
@@ -27,5 +27,3 @@ generated quantities {
     log_y[n] = normal_rng(beta * x[n] + alpha[age[n]] + alpha0, sigma);
   }
 }
-
-
