@@ -8,15 +8,17 @@ output: pdf_document
 ## 0. Data prep
 
 ```{r setup, echo=FALSE, message=FALSE, cache=TRUE}
+
 library(here)
 library(conflicted)
 library(dplyr)
 library(purrr)
 library(ggplot2)
+
 ```
 
 ```{r data_import, cache=TRUE, echo=FALSE}
-library(magrittr)
+
 dir_path <- here::here("data")
 subject <- dir_path %>% dir() %>% stringr::str_match('T[0-9]{3}')
 file_paths <- purrr::map(dir(here::here("data")), function(file_name) c(here::here("data", file_name)))
@@ -36,7 +38,6 @@ phase_convert <- function(Time) {
     } else if (Time >= 80 + 160 + 240 & Time < 80 + 160 + 240 + 160) { return(4)
     } else { return(5) }
 }
-
 tp_files <- dir(here::here("structured_study_data"),
                 pattern="*.tp", recursive=TRUE, full.names=TRUE)
 tp_subjects <- stringr::str_match(tp_files, "(T[0-9]{3}).tp")[, 2]
@@ -54,7 +55,6 @@ typeab_data <- tp_data %>%
     dplyr::select(-personality)
 psych_df <- dplyr::inner_join(tai_data, typeab_data, by="subject")
 rm(tp_files, tp_subjects, tp_data, tai_data, typeab_data)    
-
 df <- purrr::map(file_paths, read.csv) %>% 
     purrr::set_names(subject) %>% 
     dplyr::bind_rows(.id = "Subject")
@@ -63,19 +63,16 @@ df$phase <- purrr::map_dbl(df$Time, phase_convert)
 df_feather <- df %>% 
     dplyr::filter(Drive %in% c("ND", "MD")) %>%
     dplyr::mutate(phase = as.factor(phase))
-
 subject_df <- subject_bio %>% dplyr::inner_join(psych_df, by=c("subject"= "subject"))
-
 df <- df_feather %>%  dplyr::select(
     Subject, Distance, Lane.Position, Drive, phase, 
     Gaze.X.Pos, Gaze.Y.Pos, Lft.Pupil.Diameter, Rt.Pupil.Diameter)
-    
-feather::write_feather(df, here::here("study_df", "df.feather"))
+feather::write_feather(df_feather, here::here("study_df", "df.feather"))
 feather::write_feather(df, here::here("study_df", "df_select.feather"))
 feather::write_feather(subject_df, here::here("study_df", "subject_df.feather"))
-
 rm(subject_bio, psych_df, subject, df_feather)
 rm(file_paths, dir_path, index_data, phase_convert, drive_map)
+
 ```
 
 ```{r facs_files}
