@@ -1,68 +1,329 @@
 ---
-title: "Distracted Driving"
-subtitle: "STAN: simple model"
-author: Bryan Yu - ybryan@gmail.com
-output: html_document 
+title: "STAT 685: Distracted Driving"
+subtitle: "Assignment 3"
+author: "Bryan Yu: bryanyu@tamu.edu"
+output: pdf_document
 ---
 
-
-## Data Import 
-
-```{r setup, echo=FALSE, message=FALSE, warning=FALSE}
-
-library(magrittr)
+```{r setup, echo=FALSE, message=FALSE, warning=FALSE, cache=TRUE}
+library(dplyr)
+library(ggplot2)
 library(rstan)
+library(gridExtra)
 options(mc.cores = parallel::detectCores())
 rstan_options(auto_write = TRUE)
 
-df <- feather::read_feather(here::here("study_df", "df_select.feather"))
+df <- feather::read_feather(here::here("study_df", "df.feather"))
+df_select <- feather::read_feather(here::here("study_df", "df_select.feather"))
 subject_df <- feather::read_feather(here::here("study_df", "subject_df.feather"))
-nd_nolanechange <- df %>% dplyr::filter(Drive == "ND") %>% 
-    dplyr::filter( !dplyr::between(Distance, 5000, 7000))
-md_nolanechange <- df %>% dplyr::filter(Drive == "MD") %>% 
-    dplyr::filter(!dplyr::between(Distance, 5000, 7000))
-nd_drive <- nd_nolanechange %>% dplyr::group_by(Subject) %>% 
-    dplyr::summarize(sd_lane = log(sd(Lane.Position)))
 
+nd_nolanechange <- df_select %>% dplyr::filter(Drive == "ND") %>% 
+    dplyr::filter( !dplyr::between(Distance, 5000, 7000))
+md_nolanechange <- df_select %>% dplyr::filter(Drive == "MD") %>% 
+    dplyr::filter( !dplyr::between(Distance, 5000, 7000))
+
+source(here::here("src", "codebase", "stan_utility.R"))
 ```
+
+## Objective: 
+Model volatility of lane positioning with regards to texting effect and population effects (age cohort)
+
+## Summary
+
+Focused this analysis on getting some linear regression models with multiple effects (age / texting) on aggregated data, sampled by each driver. Was able to create simulated and capture the effects within uncertainty parameters. However, was not able to meaningfully capture effects of age/texting with the actual data. May need to pool results in a hierarchical model to reduce uncertainty and observe effects of age/texting. Also need to perform posterior predictive checks.
+
+*Future steps*
+
+0. Handle '0' data on eye gaze more effectively
+
+1. Pool effects for regularization to reduce uncertainty in the groups (age and texting)
+
+2. Iterate on time series model with respect to stochastic volatilty model
+
+* log volatility
+* persistence of volatility
+* log volatility at distance d
+
+3. Change-point model (account for driving phases)
+
+\newpage
 
 ## Data Analysis
 
-Missing data from the following:
+```{r data_setup, echo=FALSE, cache=TRUE}
+# Check how many variables are missing
+data_check <- nd_nolanechange %>% 
+    mutate(Rpupil=!is.nan(Rt.Pupil.Diameter) & Rt.Pupil.Diameter != 0,
+           Lpupil=!is.nan(Lft.Pupil.Diameter) & Lft.Pupil.Diameter != 0,
+           Ygaze=!is.nan(Gaze.Y.Pos) & Gaze.Y.Pos != 0,
+           Xgaze=!is.nan(Gaze.X.Pos) & Gaze.X.Pos != 0) %>%
+    group_by(Subject) %>%
+    summarize(num_Rpupil=sum(Rpupil, na.rm=TRUE),
+              num_Lpupil=sum(Lpupil, na.rm=TRUE),
+              num_Ygaze=sum(Ygaze, na.rm=TRUE),
+              num_XGaze=sum(Xgaze, na.rm=TRUE))
 
 
+# aggregated data
+gaze_nd <- nd_nolanechange %>%
+    filter(Gaze.Y.Pos > 0) %>%
+    group_by(Subject) %>%
+    summarize(sd_lane_position=sd(Lane.Position, na.rm = TRUE),
+              sd_log_lane_position=log(sd_lane_position),
+              sd_y_gaze=sd(Gaze.Y.Pos),
+              sd_log_y_gaze=log(sd(Gaze.Y.Pos))) %>%
+    inner_join(subject_df, by=c("Subject"="subject")) %>% 
+    select(Subject, 
+           sd_lane_position, sd_log_lane_position,
+           sd_y_gaze, sd_log_y_gaze, age_group) %>%
+    mutate(texting=1)
 
-## Model 01: Simple regression for lane volatility
+gaze_md <- md_nolanechange %>%
+    filter(Gaze.Y.Pos > 0) %>%
+    group_by(Subject) %>%
+    summarize(sd_lane_position=sd(Lane.Position, na.rm = TRUE),
+              sd_log_lane_position=log(sd_lane_position),
+              sd_y_gaze=sd(Gaze.Y.Pos + 0.01),
+              sd_log_y_gaze=log(sd(Gaze.Y.Pos))) %>%
+    inner_join(subject_df, by=c("Subject"="subject")) %>% 
+    select(Subject, 
+           sd_lane_position, sd_log_lane_position,
+           sd_y_gaze, sd_log_y_gaze, age_group) %>%
+    mutate(texting=2)
 
-### 1. Sufficient Statistics
+gaze <- gaze_nd %>% bind_rows(gaze_md) %>%
+    mutate(age_group=as.factor(age_group), texting=as.factor(texting))
+```
 
-Mean standard deviation and then histogram of distribution
+```{r fig.height=3, echo=FALSE}
+# 0 data
+par(mfrow=c(1, 2))
+hist(nd_nolanechange$Gaze.Y.Pos, xlab="Gaze in Y", main="Normal driving")
+hist(md_nolanechange$Gaze.Y.Pos, xlab="Gaze in Y", main="Texting driving")
+par(mfrow=c(1, 1))
+```
 
-### 2. Generate Data 
+```{r plot, echo=FALSE, fig.width=8, fig.height=6}
+library(ggplot2)
+library(gridExtra)
+library(grid)
+
+grid_arrange_shared_legend <- function(..., ncol = length(list(...)), nrow = 1, position = c("bottom", "right")) {
+
+  plots <- list(...)
+  position <- match.arg(position)
+  g <- ggplotGrob(plots[[1]] + theme(legend.position = position))$grobs
+  legend <- g[[which(sapply(g, function(x) x$name) == "guide-box")]]
+  lheight <- sum(legend$height)
+  lwidth <- sum(legend$width)
+  gl <- lapply(plots, function(x) x + theme(legend.position="none"))
+  gl <- c(gl, ncol = ncol, nrow = nrow)
+
+  combined <- switch(position,
+                     "bottom" = arrangeGrob(do.call(arrangeGrob, gl),
+                                            legend,
+                                            ncol = 1,
+                                            heights = unit.c(unit(1, "npc") - lheight, lheight)),
+                     "right" = arrangeGrob(do.call(arrangeGrob, gl),
+                                           legend,
+                                           ncol = 2,
+                                           widths = unit.c(unit(1, "npc") - lwidth, lwidth)))
+
+  grid.newpage()
+  grid.draw(combined)
+
+  # return gtable invisibly
+  invisible(combined)
+
+}
+sd_plot_nd <- ggplot(gaze_nd, aes(sd_y_gaze, sd_lane_position)) +
+    geom_point(aes(colour=age_group)) +
+    theme_bw() +
+    labs(x = "Y-plane eye gaze std dev", y="Lane position std dev",
+         title="ND: raw data", colour="Age Group") +
+    coord_cartesian(xlim = c(0, 225), ylim=c(0, 0.7))
+
+sd_log_plot_nd <- ggplot(gaze_nd, aes(sd_log_lane_position, sd_log_y_gaze)) +
+    geom_point(aes(colour=age_group)) +
+    theme_bw() +
+    labs(x = "Y-plane eye gaze std dev", y="Lane position std dev",
+         title="ND: Log transformed", colour = "Age Group") +
+    coord_cartesian(xlim = c(-3, 0), ylim=c(3, 5.5))
+
+sd_plot_md <- ggplot(gaze_md, aes(sd_y_gaze, sd_lane_position)) +
+    geom_point(aes(colour=age_group)) +
+    theme_bw() +
+    labs(x = "Y-plane eye gaze std dev", y="Lane position std dev",
+         title="MD: raw data", colour="Age Group") + 
+    coord_cartesian(xlim = c(0, 225), ylim=c(0, 0.7))
+
+sd_log_plot_md <- ggplot(gaze_md, aes(sd_log_lane_position, sd_log_y_gaze)) +
+    geom_point(aes(colour=age_group)) +
+    theme_bw() +
+    labs(x = "Y-plane eye gaze std dev", y="Lane position std dev",
+         title="MD: Log transformed", colour = "Age Group") +
+    coord_cartesian(xlim = c(-3, 0), ylim=c(3, 5.5))
+
+grid_arrange_shared_legend(sd_plot_nd, sd_log_plot_nd, sd_plot_md, sd_log_plot_md, ncol=2, nrow=2)
+```
+
+* Filtered out 0 data from eye gaze (this approximation may be too gross)
+* Filtered out missing eye gaze data (will look at modelling this later)
+* Log transformation of standard deviation data to unconstrain data for simplier model
+
+\newpage
+
+## Model 01: Simple linear regression for lane volatility
+
+$y_n:$ Log std dev of lane position
+
+$x_n:$ Log std dev of y-axis eye gaze
+
+$\beta:$ Effect of std in eye gaze
+
+$\alpha_0:$ Intercept of lane position
+
+$\alpha_{age}$: Effect of age cohort
+
+$\alpha_{texting}$: Effect of texting
+
+### 1. Probability Model: Priors and likelihoods
+
+**Homogeneous population:**
+
+$$y_n \sim \mathcal{N}(\alpha_0 + \beta x_n, \sigma) $$
+
+
+**Heterogeneous population:**
+
+$$y_n \sim \mathcal{N}(\alpha_0 + \alpha_{age} + \beta x_n, \sigma) $$
+
+**Heterogeneous with texting populations:**
+
+$$y_n \sim \mathcal{N}(\alpha_0 + \alpha_{age} + \alpha_{texting} + \beta x_n, \sigma) $$
+
+---
+
+**Priors**
+
+Empirical priors with wide band
+
+$$\beta \sim \mathcal{N}(0, 5)$$
+
+$$\alpha_0 \sim \mathcal{N}(1.825, 5)$$
+
+$$\alpha_{age} \sim \mathcal{N}(0, 5)$$
+
+$$\alpha_{texting} \sim \mathcal{N}(0, 5)$$
+
+\newpage
+
+### 2. Simulated data with known parameters
+
 
 **Simulated model 1a: Homogeneous population (age)**
-```{r sim_homo}
 
-fit_homo <- stan(here::here("src", "stan", "sim_model_1b.stan"),
-                 iter=1000, chains=1, warmup=0, algorithm="Fixed_param")
+$n = 200$ for all simulations
+
+```
+transformed data {
+  real alpha0 = 1.825;
+  real beta = -2;
+  real<lower=0> sigma = 0.5;
+}
+```
+
+```{r sim_homo, message=FALSE, warning=FALSE, cache=TRUE, echo=FALSE}
+load(here::here("sim_models.RData"))
 la <- rstan::extract(fit_homo, permuted=TRUE)
+```
+
+**Simulated model 2b: Heterogeneous population (age)**
+
+```
+transformed data {
+  real alpha0 = 1.825;
+  int N_age = 2;
+  vector[2] alpha_age = [0.25, -0.25]';
+  real beta = -2;
+  real<lower=0> sigma = 0.5;
+}
 
 ```
 
-** Simulated model 2b: Heterogeneous population (age)**
-```{r sim_hetero}
-
-fit_hetero <- stan(here::here("src", "stan", "sim_model_2b.stan"),
-                   iter=1000, chains=1, warmup=0, algorithm="Fixed_param")
+```{r sim_hetero, message=FALSE, warning=FALSE, cache=TRUE, echo=FALSE}
 lb <- rstan::extract(fit_hetero, permuted=TRUE)
-
 ```
 
-### 3. Analyze generative ensemble
+**Simulated model 3b: Heterogeneous population (age) with texting**
+
+```
+transformed data {
+  real alpha0 = 1.825;
+  int N_age = 2;
+  vector[2] alpha_age = [0.25, -0.25]';
+  vector[2] alpha_texting = [0.5, -.5]';
+  real beta = -2;
+  real<lower=0> sigma = 0.5;
+}
+```
+
+```{r sim_texting, message=FALSE, warning=FALSE, cache=TRUE, echo=FALSE}
+lc <- rstan::extract(fit_texting, permuted=TRUE)
+```
+
+```{r generative_ensemble, cache=TRUE, echo=FALSE, fig.height=4}
+par(mfrow=c(1, 3))
+hist(la$log_y, main="Single age cohort", xlab="Log std dev")
+hist(lb$log_y, main="Different ages", xlab="Log std dev")
+hist(lc$log_y, main="Different ages + texting", xlab="Log std dev")
+par(mfrow=c(1, 1))
+```
+
+### 3. Estimate model with simulated data
+
+```{r results, cache=TRUE}
+load(here::here("fitted_sim_models.RData"))
+homo_model
+
+hetero_model
+
+texting_model
+```
+
+Models captured parameters within sd
+
+\newpage
+
+### 4. Estimate model with actual data
+
 ```{r}
+load(here::here("fitted_act_models.RData"))
+
+act_homo_model
+
+act_hetero_model
+
+act_texting_model
 
 ```
 
+### 5. Model fit
 
-## Model 02: More stuff
+Todo:
+
+Posterior predictive checks 
+
+### 6. Model comparison 
+
+### 7. Inference
+
+\newpage
+
+## Model 02: Time series model:
+
+
+```{r}
+acf(nd_nolanechange$Lane.Position[nd_nolanechange$Subject=="T001"], main="")
+```
 

@@ -1,8 +1,8 @@
-// Model 1b
+// Model 1b with lognormal distribution and vectorized
 data {
-  int<lower=1> N;     // Number of individuals
-  real x[N];          // Mean pupil dilation for each individual
-  real<lower=0> y[N]; // Standard deviation of lane position for each individual
+  int<lower=1> N;       // Number of individuals
+  vector[N] x;          // Mean pupil dilation for each individual
+  vector<lower=0>[N] y; // Standard deviation of lane position for each individual
 }
 
 parameters {
@@ -12,9 +12,9 @@ parameters {
 }
 
 model {
-  alpha ~ normal(0, ?);
-  beta ~ normal(0, ?);
-  sigma ~ normal(0, ?);
+  alpha ~ normal(0, 5);
+  beta ~ normal(0, 5);
+  sigma ~ normal(0, 5);
 
   y ~ lognormal(beta * x + alpha, sigma);
 }

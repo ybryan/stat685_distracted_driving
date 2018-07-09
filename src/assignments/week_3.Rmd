@@ -8,7 +8,7 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(echo = FALSE, cache=TRUE)
 source(here::here('src', 'codebase', 'stan_utility.R'))
 ```
 

@@ -1,8 +1,10 @@
-// Model 2a
+// Model 2a: Heterogeneous population cohort
 data {
   int<lower=1> N;     // Number of individuals
-  real x[N];          // Mean pupil dilation for each individual
-  real log_y[N];      // Log standard deviation of lane position for each individual
+  vector[N] x;
+  vector[N] log_y;
+  //real x[N];          // Mean pupil dilation for each individual
+  //real log_y[N];      // Log standard deviation of lane position for each individual
 
   int<lower=1> N_age;
   int<lower=1, upper=N_age> age[N];
@@ -10,30 +12,30 @@ data {
 
 parameters {
   real alpha0;
-  real alpha_age[N_age];
+  vector[N_age] alpha_age;
   real beta;
   real<lower=0> sigma;
 }
 
 model {
-  alpha0 ~ normal(0, ?);
-  alpha_age ~ normal(0, ?);
+  alpha0 ~ normal(0, 5);
+  alpha_age ~ normal(0, 5);
 
-  beta ~ normal(0, ?);
-  sigma ~ normal(0, ?);
+  beta ~ normal(0, 5);
+  sigma ~ normal(0, 5);
 
   log_y ~ normal(beta * x + alpha0 + alpha_age[age], sigma);
 }
 
 generated quantities {
   real ave_log_y_ppc = 0;
-  real ave_log_y_age_ppc[N_age] = rep_vector(0, N_age);
+  vector[N_age] ave_log_y_age_ppc = rep_vector(0, N_age);
 
   {
-    int M[N_age] = rep_array(0, N_age);
+    vector[N_age] M = rep_vector(0, N_age);
 
     for (n in 1:N) {
-      real log_y_ppc = normal_rng(beta * x + alpha0 + alpha_age[age[n]], sigma);
+      real log_y_ppc = normal_rng(beta * x[n] + alpha0 + alpha_age[age[n]], sigma);
       ave_log_y_ppc = ave_log_y_ppc + log_y_ppc;
       ave_log_y_age_ppc[age[n]] = ave_log_y_age_ppc[age[n]] + log_y_ppc;
       M[age[n]] = M[age[n]] + 1;

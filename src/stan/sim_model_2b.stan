@@ -1,7 +1,6 @@
 // Generate Data 2b
-// fit_hetero <- stan(model_file="generate_data_2b.stan", iter=100, warmup=0, algorithm='Fixed_param')
 transformed data {
-  real alpha0 = 1.5;
+  real alpha0 = 1.825;
   int N_age = 2;
   vector[2] alpha = [0.25, -0.25]';
   real beta = -2;
