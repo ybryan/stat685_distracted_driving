@@ -3,25 +3,23 @@ data {
   int<lower=1> N;     // Number of individuals
   vector[N] x;
   vector[N] log_y;
-  //real x[N];          // Mean pupil dilation for each individual
-  //real log_y[N];      // Log standard deviation of lane position for each individual
 
   int<lower=1> N_age;
   int<lower=1, upper=N_age> age[N];
 }
 
 parameters {
-  real alpha;
+  real alpha0;
   real beta;
   real<lower=0> sigma;
 }
 
 model {
-  alpha ~ normal(0, 5);
+  alpha0 ~ normal(1.825, .2);
   beta ~ normal(0, 5);
   sigma ~ normal(0, 5);
 
-  log_y ~ normal(beta * x + alpha, sigma);
+  log_y ~ normal(beta * x + alpha0, sigma);
 }
 
 generated quantities {
@@ -31,7 +29,7 @@ generated quantities {
     vector[N_age] M = rep_vector(0, N_age);
 
     for (n in 1:N) {
-      real log_y_ppc = normal_rng(beta * x[n] + alpha, sigma);
+      real log_y_ppc = normal_rng(beta * x[n] + alpha0, sigma);
       ave_log_y_ppc = ave_log_y_ppc + log_y_ppc;
       ave_log_y_age_ppc[age[n]] = ave_log_y_age_ppc[age[n]] + log_y_ppc;
       M[age[n]] = M[age[n]] + 1;

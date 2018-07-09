@@ -3,8 +3,6 @@ data {
   int<lower=1> N;     // Number of individuals
   vector[N] x;
   vector[N] log_y;
-  //real x[N];          // Mean pupil dilation for each individual
-  //real log_y[N];      // Log standard deviation of lane position for each individual
 
   int<lower=1> N_age;
   int<lower=1, upper=N_age> age[N];
@@ -18,7 +16,7 @@ parameters {
 }
 
 model {
-  alpha0 ~ normal(0, 5);
+  alpha0 ~ normal(1.825, .2);
   alpha_age ~ normal(0, 5);
 
   beta ~ normal(0, 5);

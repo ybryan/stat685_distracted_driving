@@ -9,3 +9,4 @@ structured_study_data
 *_files/
 study_df
 structured_study_data
+*.RData
