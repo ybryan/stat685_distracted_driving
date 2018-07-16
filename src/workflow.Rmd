@@ -1,0 +1,251 @@
+---
+title: "Distracted Driving Workflow"
+output: 
+    html_document: 
+        toc: false
+        toc_float: true
+        toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(cache = TRUE)
+
+library(rstan)
+library(dplyr)
+library(ggplot2)
+library(gridExtra)
+library(grid)
+library(here)
+
+source(here::here("src", "codebase", "stan_utility.R"))
+options(mc.cores = parallel::detectCores())
+rstan_options(auto_write = TRUE)
+
+grid_arrange_shared_legend <- function(..., ncol = length(list(...)), nrow = 1, 
+                                       position = c("bottom", "right")) {
+  plots <- list(...)
+  position <- match.arg(position)
+  g <- ggplotGrob(plots[[1]] + theme(legend.position = position))$grobs
+  legend <- g[[which(sapply(g, function(x) x$name) == "guide-box")]]
+  lheight <- sum(legend$height)
+  lwidth <- sum(legend$width)
+  gl <- lapply(plots, function(x) x + theme(legend.position="none"))
+  gl <- c(gl, ncol = ncol, nrow = nrow)
+  combined <- switch(
+      position,
+      "bottom" = arrangeGrob(
+          do.call(arrangeGrob, gl), legend, ncol = 1,
+          heights = unit.c(unit(1, "npc") - lheight, lheight)),
+      "right" = arrangeGrob(
+          do.call(arrangeGrob, gl), legend, ncol = 2,
+          widths = unit.c(unit(1, "npc") - lwidth, lwidth)))
+  grid.newpage()
+  grid.draw(combined)
+  invisible(combined)
+}
+
+df_select <- feather::read_feather(here::here("study_df", "df_select.feather"))
+subject_df <- feather::read_feather(here::here("study_df", "subject_df.feather"))
+no_lane_df <- df_select %>% 
+    dplyr::filter(!dplyr::between(Distance, 5000, 7000)) %>%
+    dplyr::inner_join(subject_df, by=c("Subject"="subject"))
+
+gaze <- no_lane_df %>%
+    dplyr::group_by(Subject, Drive, gender, age_group, tai, type_ab) %>%
+    dplyr::summarize(sd_lane_pos=sd(Lane.Position, na.rm = TRUE),
+              sd_log_lane_pos=log(sd(Lane.Position, na.rm = TRUE)),
+              sd_y_gaze=sd(Gaze.Y.Pos, na.rm = TRUE),
+              sd_log_y_gaze=log(sd(Gaze.Y.Pos, na.rm=TRUE))) %>%
+    dplyr::filter(!is.na(sd_y_gaze))
+
+gaze_nd <- gaze %>% dplyr::filter(Drive=="ND")
+seed <- 1000
+rm(df_select, subject_df)
+```
+
+All drivers (separte color) with lane change phase removed
+
+```{r data_0, echo=FALSE, cache=TRUE, fig.align="center", fig.height=4}
+nd_nolanechange <- no_lane_df %>%  dplyr::filter(Drive == "ND") 
+md_nolanechange <- no_lane_df %>%  dplyr::filter(Drive == "MD") 
+
+nd_plot <- ggplot(nd_nolanechange, aes(Distance, Lane.Position)) +
+    geom_line(aes(colour=Subject)) + theme_bw() + 
+    theme(legend.position = "none") + ylim(-5.5, 8) + ggtitle("Normal Driving (ND)")
+md_plot <- ggplot(md_nolanechange, aes(Distance, Lane.Position)) +
+    geom_line(aes(colour=Subject)) + theme_bw() + 
+    theme(legend.position = "none") + ylim(-5.5, 8) + ggtitle("Sensorimotor Driving (MD)")
+grid.arrange(nd_plot, md_plot, ncol=2)
+rm(md_nolanechange, nd_plot, md_plot)
+```
+
+**Aggregated dataset:**
+```{r data_1, echo=FALSE, cache=TRUE}
+knitr::kable(head(gaze))
+```
+
+## 01 Homogeneous aggregate regression model: Normal driving only
+
+### 1. Conceptual analysis
+
+Eye gazing in texting driving creates volatility in both normal and distracted driving. '0' Data is both blinking and eyes off-screen during texting distraction. This model is only focused on how eye gaze variance affects lane driving.
+
+```{r 1.1, fig.align="center", echo=FALSE}
+par(mfrow=c(1, 2))
+hist(nd_nolanechange$Gaze.Y.Pos, xlab="Gaze in Y", main="Normal driving", ylim=c(0, 13000))
+hist(md_nolanechange$Gaze.Y.Pos, xlab="Gaze in Y", main="Texting driving", ylim=c(0, 13000))
+par(mfrow=c(1, 1))
+```
+
+### 2. Define observations
+
+$$y_n \sim \mathcal{N}(\alpha_0 + \beta x_n, \sigma) $$
+
+$y_n:$ Log std dev of lane position
+
+$x_n:$ Log std dev of y-axis eye gaze
+
+$\beta:$ Effect of std in eye gaze
+
+$\alpha_0:$ Intercept of lane position
+
+### 3. Identify relevant summary statistics
+Log of the average lane position for each population(s)
+
+### 4. Generative model
+```{r 1.4}
+writeLines(readLines(here("src", "stan", "sim_model_1b.stan")))
+
+gen_homo <- stan(here("src", "stan", "sim_model_1b.stan"),
+                 iter=1000, warmup=0, chains=1, algorithm="Fixed_param", seed=seed)
+```
+
+### 5. Analyze generative model
+
+#### Analyze prior predictive distribution
+```{r 1.5.1}
+gen_homo_extract <- rstan::extract(gen_homo)
+hist(gen_homo_extract$log_y, main="", xlab="Log y")
+```
+
+#### Fit simulated observations and evaluate
+```{r 1.5.2.1}
+writeLines(readLines(here::here("src", "stan", "model_1a.stan")))
+
+N <- length(gen_homo_extract$x)
+x <- gen_homo_extract$x
+log_y <- gen_homo_extract$log_y
+
+fit_homo_gen <- stan(here::here("src", "stan", "model_1a.stan"),
+                     data=list(N, x, log_y))
+check_all_diagnostics(fit_homo_gen)
+fit_homo_gen
+```
+
+**Posterior behaviors**
+
+Z-Score of beta / sigma:
+
+```{r 1.5.2.2, echo=FALSE}
+params_fit_homo <- extract(fit_homo_gen)
+z_beta <- abs(mean(params_fit_homo$beta) - -2) / sd(params_fit_homo$beta)
+z_sigma <- abs(mean(params_fit_homo$sigma) - 0.5) / sd(params_fit_homo$sigma)
+```
+
+$Z_{\beta}$: `r z_beta`
+
+$Z_{\sigma}$: `r z_sigma`
+
+No posterior shrinkage since parameters are constants
+
+### 6. Fit observations and evaluate
+```{r 1.6}
+x <- gaze_nd$sd_log_y_gaze
+N <- length(x)
+log_y <- gaze_nd$sd_log_lane_position
+fit_homo_act <- stan(here::here("src", "stan", "model_1a.stan"),
+                     data=list(N, x, log_y))
+fit_homo_act
+check_all_diagnostics(fit_homo_act)
+```
+
+### 7. Analyze posterior predictive distribution
+
+```{r 1.7, message=FALSE}
+plot(fit_homo_act)
+mean(log_y)
+mean(extract(fit_homo_act)$ave_log_y_ppc)
+sd(extract(fit_homo_act)$ave_log_y_ppc)
+```
+
+Posterior predictive check of log_y's appears consistent
+
+---
+
+## 02 Heterogeneous aggregate model 
+
+### 1. Conceptual analysis
+
+Emperically, difference in the variance of the age cohorts leads to the belief that this effect should be modeled separately. These should have the same observations and summary statistics
+
+```{r 2.1}
+gaze_nd %>% group_by(age_group) %>% summarize(mean(sd_log_y_gaze))
+```
+
+### 4. Generative model
+
+```{r}
+
+```
+
+
+### 5. Analyze generative model
+#### Analyze prior predictive distribution
+#### Fit simulated observations and evaluate
+### 6. Fit observations and evaluate
+### 7. Analyze posterior predictive distribution
+
+## 03 Heterogeneous aggregate model with texting
+
+## 04 Hierarchical model 
+
+```{r 4.0}
+#writeLines(readLines(here::here('src', 'stan', 'pooled_model.stan')))
+```
+
+
+## 05 Time series single-driver model
+<span style="color:red">Red</span> indicates periods of stimulus (texting)
+
+```{r, echo=FALSE}
+par(mfrow=c(2, 2))
+t001_nd <- nd_nolanechange[nd_nolanechange$Subject=="T001", ]
+t001_md <- md_nolanechange[md_nolanechange$Subject=="T001", ]
+t001_md_stim <- t001_md[t001_md$Stimulus != 0, ]
+plot(t001_nd$Distance, t001_nd$Gaze.Y.Pos,
+     main="Normal driving: Driver 001", xlab="Distance", ylab="Eye Gaze")
+plot(t001_md$Distance, t001_md$Gaze.Y.Pos, 
+     main="Texting driving: Driver 001", xlab="Distance", ylab="Eye Gaze")
+points(t001_md_stim$Distance, t001_md_stim$Lane.Position, col="red")
+
+plot(t001_md$Distance, t001_md$Lane.Position, xlab="Distance", ylab="Eye Gaze")
+plot(t001_md$Distance, t001_md$Lane.Position, xlab="Distance", ylab="Lane Position")
+points(t001_md_stim$Distance, t001_md_stim$Lane.Position, col="red")
+par(mfrow=c(1, 1))
+```
+
+## 06 Time series all-driver aggregate inference
+
+## 07 Other population cohort analysis
+
+```{r}
+gender_plot <- ggplot(gaze_nd, aes(gender, sd_log_lane_pos)) + geom_violin()
+age_plot <- ggplot(gaze_nd, aes(age_group, sd_log_lane_pos)) + geom_violin()
+tai_plot <- ggplot(gaze_nd, aes(tai, sd_log_lane_pos)) + geom_point()
+type_plot <- ggplot(gaze_nd, aes(type_ab, sd_log_lane_pos)) + geom_point()
+grid.arrange(gender_plot, age_plot, tai_plot, type_plot, ncol=2)
+rm(gender_plot, age_plot, tai_plot, type_plot)
+```
+
+Indications that age group and personality type are good indicators of volatility with driving
