@@ -10,3 +10,4 @@ structured_study_data
 study_df
 structured_study_data
 *.RData
+libs/

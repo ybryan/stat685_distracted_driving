@@ -6,21 +6,27 @@ data {
 }
 
 parameters {
-  real alpha;
+  real<lower=1.8, upper=1.9>alpha0;
   real beta;
   real<lower=0> sigma;
 }
 
 model {
-  alpha ~ normal(0, 5);
+  alpha0 ~ normal(1.825, .1);
   beta ~ normal(0, 5);
   sigma ~ normal(0, 5);
 
-  log_y ~ normal(beta * x + alpha, sigma);
+  log_y ~ normal(beta * x + alpha0, sigma);
 }
 
 generated quantities {
-  real log_y_ppc[N];
-  for (n in 1:N)
-    log_y_ppc[n] = normal_rng(beta * x[n] + alpha, sigma);
+  real ave_log_y_ppc = 0;
+  {
+    for (n in 1:N) {
+      real log_y_ppc = normal_rng(beta * x[n] + alpha0, sigma);
+      ave_log_y_ppc = ave_log_y_ppc + log_y_ppc;
+    }
+
+  ave_log_y_ppc = ave_log_y_ppc / N;
+  }
 }

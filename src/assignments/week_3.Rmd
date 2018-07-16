@@ -13,7 +13,6 @@ library(gridExtra)
 options(mc.cores = parallel::detectCores())
 rstan_options(auto_write = TRUE)
 
-#df <- feather::read_feather(here::here("study_df", "df.feather"))
 df_select <- feather::read_feather(here::here("study_df", "df_select.feather"))
 subject_df <- feather::read_feather(here::here("study_df", "subject_df.feather"))
 
@@ -21,7 +20,7 @@ nd_nolanechange <- df_select %>% dplyr::filter(Drive == "ND") %>%
     dplyr::filter( !dplyr::between(Distance, 5000, 7000))
 md_nolanechange <- df_select %>% dplyr::filter(Drive == "MD") %>% 
     dplyr::filter( !dplyr::between(Distance, 5000, 7000))
-
+rm(df_select)
 source(here::here("src", "codebase", "stan_utility.R"))
 ```
 
@@ -34,12 +33,11 @@ Focused this analysis on getting some linear regression models with multiple eff
 
 *Future steps*
 
-0. Handle '0' data on eye gaze more effectively, bi-modal/tri-modal mixture of blinking / distraction / eyes on road
-
 1. Pool effects for regularization to reduce uncertainty in the groups (age and texting)
 
 2. Iterate on time series model with respect to stochastic volatilty model
 
+* Handle '0' data on eye gaze more effectively, bi-modal/tri-modal mixture of blinking / distraction / eyes on road
 * log volatility
 * persistence of volatility
 * log volatility at distance d
@@ -51,44 +49,33 @@ Focused this analysis on getting some linear regression models with multiple eff
 ## Data Analysis
 
 ```{r data_setup, echo=FALSE, cache=TRUE}
-# Check how many variables are missing
-data_check <- nd_nolanechange %>% 
-    mutate(Rpupil=!is.nan(Rt.Pupil.Diameter) & Rt.Pupil.Diameter != 0,
-           Lpupil=!is.nan(Lft.Pupil.Diameter) & Lft.Pupil.Diameter != 0,
-           Ygaze=!is.nan(Gaze.Y.Pos) & Gaze.Y.Pos != 0,
-           Xgaze=!is.nan(Gaze.X.Pos) & Gaze.X.Pos != 0) %>%
-    group_by(Subject) %>%
-    summarize(num_Rpupil=sum(Rpupil, na.rm=TRUE),
-              num_Lpupil=sum(Lpupil, na.rm=TRUE),
-              num_Ygaze=sum(Ygaze, na.rm=TRUE),
-              num_XGaze=sum(Xgaze, na.rm=TRUE))
-
 # aggregated data
 gaze_nd <- nd_nolanechange %>%
     filter(Gaze.Y.Pos > 0) %>%
     group_by(Subject) %>%
     summarize(sd_lane_position=sd(Lane.Position, na.rm = TRUE),
               sd_log_lane_position=log(sd_lane_position),
-              sd_y_gaze=sd(Gaze.Y.Pos),
-              sd_log_y_gaze=log(sd(Gaze.Y.Pos))) %>%
+              sd_y_gaze=sd(Gaze.Y.Pos, na.rm = TRUE),
+              sd_log_y_gaze=log(sd_y_gaze)) %>%
     inner_join(subject_df, by=c("Subject"="subject")) %>% 
     select(Subject, 
            sd_lane_position, sd_log_lane_position,
            sd_y_gaze, sd_log_y_gaze, age_group) %>%
-    mutate(texting="ND")
+    mutate(texting="ND") %>%
+    filter(!is.nan(sd_y_gaze))
 
 gaze_md <- md_nolanechange %>%
-    filter(Gaze.Y.Pos > 0) %>%
     group_by(Subject) %>%
     summarize(sd_lane_position=sd(Lane.Position, na.rm = TRUE),
               sd_log_lane_position=log(sd_lane_position),
-              sd_y_gaze=sd(Gaze.Y.Pos + 0.01),
-              sd_log_y_gaze=log(sd(Gaze.Y.Pos))) %>%
+              sd_y_gaze=sd(Gaze.Y.Pos, na.rm = TRUE),
+              sd_log_y_gaze=log(sd_y_gaze)) %>%
     inner_join(subject_df, by=c("Subject"="subject")) %>% 
     select(Subject, 
            sd_lane_position, sd_log_lane_position,
            sd_y_gaze, sd_log_y_gaze, age_group) %>%
-    mutate(texting="MD")
+    mutate(texting="MD") %>%
+    filter(!is.nan(sd_y_gaze))
 
 gaze <- gaze_nd %>% bind_rows(gaze_md) %>%
     mutate(age_group=as.factor(age_group), texting=as.factor(texting))
@@ -102,6 +89,8 @@ par(mfrow=c(1, 2))
 hist(nd_nolanechange$Gaze.Y.Pos, xlab="Gaze in Y", main="Normal driving", ylim=c(0, 13000))
 hist(md_nolanechange$Gaze.Y.Pos, xlab="Gaze in Y", main="Texting driving", ylim=c(0, 13000))
 par(mfrow=c(1, 1))
+rm(nd_nolanechange)
+
 ```
 
 ```{r plot, echo=FALSE, fig.width=8, fig.height=6}

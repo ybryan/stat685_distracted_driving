@@ -1,4 +1,3 @@
-// Generate Data 1b
 transformed data {
   real alpha = 1.825;
   real beta = -2;
