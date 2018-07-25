@@ -5,7 +5,7 @@ transformed data {
 }
 
 generated quantities {
-  real x = normal_rng(10, 1);
+  real x = normal_rng(5, 2);
   real log_y = normal_rng(beta * x + alpha, sigma);
 }
 

@@ -3,7 +3,7 @@ transformed data {
   real alpha0 = 1.825;
   int N_age = 2;
   vector[2] alpha = [0.25, -0.25]';
-  real beta = -2;
+  real beta = 0.5;
   real<lower=0> sigma = 0.5;
  }
 
