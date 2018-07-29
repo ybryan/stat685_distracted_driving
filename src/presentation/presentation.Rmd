@@ -1,0 +1,214 @@
+---
+title: "TAMU MS STAT 685 Project <br/>🚘 ➕📱"
+subtitle: "Committee: <br/> Dr. Derya Akleman, Dr. Samiran Sinha, Dr. Ergun Akleman"
+author: "Bryan Yu <br/> bryanyu@tamu.edu"
+date: "August 2018"
+output:
+  xaringan::moon_reader:
+    css: ["default", "tamu.css", "tamu-fonts.css", "byu.css", "hygge"]
+    nature:
+          highlightLines: true
+---
+
+```{r setup, include=FALSE}
+options(htmltools.dir.version = FALSE)
+library(ggplot2)
+library(gridExtra)
+library(grid)
+library(dplyr)
+library(here)
+
+c_light <- c("#DCBCBC")
+c_light_highlight <- c("#C79999")
+c_mid <- c("#B97C7C")
+c_mid_highlight <- c("#A25050")
+c_dark <- c("#8F2727")
+c_dark_highlight <- c("#7C0000")
+
+df_select <- feather::read_feather(here::here("study_df", "df_select.feather"))
+subject_df <- feather::read_feather(here::here("study_df", "subject_df.feather"))
+df <- df_select %>% 
+    dplyr::filter(Distance >= 250) %>%         # Remove driver starts
+    dplyr::filter(Distance <= 11000) %>%       # Remove driver ends
+    dplyr::inner_join(subject_df, by=c("Subject"="subject"))
+
+nd_raw <- df %>%  dplyr::filter(Drive == "ND") 
+md_raw <- df %>%  dplyr::filter(Drive == "MD") 
+rm(subject_df)
+```
+
+background-position: 50% 50%
+background-size: 100%
+background-image: url(https://media.giphy.com/media/mPIIMhYLzFhxS/giphy.gif)
+class: inverse, center, bottom, fullscale
+
+# Look where you want to go!
+
+---
+
+# Experiment
+
+- .small[.bold[Controlled] simulated driving experiment<sup>1</sup> to asses driving behavior]
+
+- .small[Multiple different stressors for drives (cognitive, emotional, sensorimotor .blue[(texting)]]
+
+- .small[Sensors captured vehicle information and driver outputs]
+
+```{r, echo=FALSE, out.width= "600px"}
+knitr::include_graphics("etc/setup.png")
+```
+
+.footnote[
+[1] Taamneh, S. et al. [A multimodal dataset for various forms of distracted driving.](https://www.nature.com/articles/sdata2017110) Sci. Data 4:170110 doi: 10.1038/sdata.2017.110 (2017).
+]
+
+---
+
+# Objective
+
+```{r, echo=FALSE, warning=FALSE, fig.height=3, fig.align="center"}
+
+rect <- data.frame(xmin=5000, xmax=6750, ymin=-Inf, ymax=Inf)
+
+nd_plot <- ggplot(nd_raw, aes(Distance, Lane.Position)) + 
+    geom_line(aes(colour=Subject)) + 
+    theme_bw() + 
+    theme(legend.position = "none") + 
+    ggtitle("Normal Driving (ND)") +
+    xlab("Distance (m)") + 
+    ylab("Lane Position(m)") +
+    coord_cartesian(ylim=c(-5.5, 7)) +
+    geom_rect(data=rect, aes(xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax),
+              color="transparent",
+              alpha=0.5,
+              inherit.aes = FALSE)
+
+md_plot <- ggplot(md_raw, aes(Distance, Lane.Position)) +
+    geom_line(aes(colour=Subject)) + 
+    xlab("Distance (m)") + ylab("Lane Position(m)") +
+    theme_bw() + 
+    theme(legend.position = "none") + 
+    ylim(-5.5, 8) + 
+    ggtitle("Texting Driving (MD)") +
+    coord_cartesian(ylim=c(-5.5, 7)) +
+    geom_rect(data=rect, aes(xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax),
+              color="transparent",
+              alpha=0.5,
+              inherit.aes = FALSE)
+
+grid.arrange(nd_plot, md_plot, ncol=2)
+rm(nd_plot, md_plot, nd_raw, md_raw, rect)
+```
+
+.footnote[
+[1] Each color line is a separate driver (N=68)
+
+[2] During middle of drive, each driver performed a lane change, this section of data was removed during analysis (gray area)
+]
+
+--
+
+- Compare volatility of lane positioning between .red[**texting (MD)**] and .blue[**normal (ND)** ]drivers
+
+--
+
+- Quantify eye gaze (Y direction) and population cohort (age, personality) effects
+
+--
+
+- Bayesian MCMC *time-series* modelling with `Stan`
+
+---
+
+# *Preliminary* Analysis
+
+- No trend, no seasonality, *non-constant variance* with .red[**texting driving**]
+
+
+---
+# A single example
+
+```{r cleaner, echo=FALSE}
+df_cleaner <- df %>% 
+    dplyr::filter(!Subject %in% c("T028", "T032", "T033", "T088")) %>%  # Missing stimulus variable
+    dplyr::filter(!(Subject=="T002")) %>% # Missing eye gaze
+    dplyr::filter(!(Subject=="T003" & Drive=="MD")) %>% 
+    dplyr::filter(!(Subject=="T007")) %>% 
+    dplyr::filter(!(Subject=="T008" & Drive=="MD")) %>% 
+    dplyr::filter(!(Subject=="T015")) %>% 
+    dplyr::filter(!(Subject=="T017")) %>% 
+    dplyr::filter(!(Subject=="T023")) %>% 
+    dplyr::filter(!(Subject=="T027")) %>% 
+    dplyr::filter(!(Subject=="T028" & Drive=="MD")) %>% 
+    dplyr::filter(!(Subject=="T029")) %>% 
+    dplyr::filter(!(Subject=="T032")) %>% 
+    dplyr::filter(!(Subject=="T036")) %>% 
+    dplyr::filter(!(Subject=="T038")) %>% 
+    dplyr::filter(!(Subject=="T042")) %>% 
+    dplyr::filter(!(Subject=="T047")) %>% 
+    dplyr::filter(!(Subject=="T055" & Drive=="ND")) %>% 
+    dplyr::filter(!(Subject=="T086" & Drive=="ND")) %>%
+    dplyr::filter(!dplyr::between(Distance, 5000, 7000)) %>% # Remove lane change
+    dplyr::mutate(half=ifelse(Distance < 5000, 1, 2))
+    
+df_1 <- df_cleaner %>% 
+    dplyr::filter(half==1) %>%
+    dplyr::group_by(Subject, Drive) %>%
+    dplyr::mutate(ntile=ntile(Distance, 200)) %>% # Bins for resampling
+    dplyr::select(-half, -Lft.Pupil.Diameter, -Rt.Pupil.Diameter, -LaneOffset, -Time) %>% 
+    dplyr::arrange(Subject, Drive, Distance) %>%
+    dplyr::group_by(Subject, Drive, ntile) %>%
+    dplyr::mutate(mrank=dplyr::row_number()) %>%
+    dplyr::filter(mrank==1) %>%
+    dplyr::ungroup() %>%
+    dplyr::select(-ntile, -mrank) %>% 
+    dplyr::ungroup()
+```
+
+---
+
+# Priors and likelihood
+
+$$\alpha_0 \sim N(1.825, 0.5) \textrm{ (Lane position intercept)}$$
+
+
+
+---
+class: inverse, center, middle
+
+# Backup slides
+
+---
+
+# Data cleaning 
+
+.small[Inconsistent start and end observations filtered]
+
+.small[Drives without eye gaze data filtered]
+    
+.small[Drives without stimulus indicators for applied stressors filtered]
+    
+.small[Resampled data by distance into ~approximately 200 bins for each "half"]
+    
+.small[Data modelled separately by before and after lane change]
+
+# Head and tail observation issue
+
+```{r, echo=FALSE, warning=FALSE, fig.align="center", fig.height=3.5}
+start_plot <- ggplot(df_select, aes(Distance)) + 
+    geom_histogram(binwidth=25, color="white") + 
+    coord_cartesian(xlim=c(0, 1000)) +
+    geom_vline(xintercept = 250, colour="red") +
+    theme_bw() + 
+    theme(legend.position = "none") + 
+    ggtitle("Histogram of observations at start") 
+    
+end_plot <- ggplot(df_select, aes(Distance)) + 
+    geom_histogram(binwidth=25, color="white") + 
+    coord_cartesian(xlim=c(10500, 11500)) +
+    geom_vline(xintercept = 11000, colour="red") +
+    theme_bw() + 
+    theme(legend.position = "none") + 
+    ggtitle("Histogram of observations at end") 
+grid.arrange(start_plot, end_plot, ncol=2)
+```

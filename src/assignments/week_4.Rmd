@@ -18,37 +18,18 @@ library(here)
 library(foreach)
 library(doParallel)
 
+source(here::here("src", "codebase", "helper.R"))
 source(here::here("src", "codebase", "stan_utility.R"))
 options(mc.cores = parallel::detectCores())
 rstan_options(auto_write = TRUE)
 
-grid_arrange_shared_legend <- function(..., ncol = length(list(...)), nrow = 1, 
-                                       position = c("bottom", "right")) {
-  plots <- list(...)
-  position <- match.arg(position)
-  g <- ggplotGrob(plots[[1]] + theme(legend.position = position))$grobs
-  legend <- g[[which(sapply(g, function(x) x$name) == "guide-box")]]
-  lheight <- sum(legend$height)
-  lwidth <- sum(legend$width)
-  gl <- lapply(plots, function(x) x + theme(legend.position="none"))
-  gl <- c(gl, ncol = ncol, nrow = nrow)
-  combined <- switch(
-      position,
-      "bottom" = arrangeGrob(
-          do.call(arrangeGrob, gl), legend, ncol = 1,
-          heights = unit.c(unit(1, "npc") - lheight, lheight)),
-      "right" = arrangeGrob(
-          do.call(arrangeGrob, gl), legend, ncol = 2,
-          widths = unit.c(unit(1, "npc") - lwidth, lwidth)))
-  grid.newpage()
-  grid.draw(combined)
-  invisible(combined)
-}
-
 df_select <- feather::read_feather(here::here("study_df", "df_select.feather"))
 subject_df <- feather::read_feather(here::here("study_df", "subject_df.feather"))
+
 no_lane_df <- df_select %>% 
-    dplyr::filter(!dplyr::between(Distance, 5000, 7000)) %>%
+    dplyr::filter(!dplyr::between(Distance, 5000, 7000)) %>% # Remove lane change
+    dplyr::filter(Distance > 250) %>%         # Remove driver starts
+    dplyr::filter(Distance < 11000) %>%       # Remove driver ends
     dplyr::inner_join(subject_df, by=c("Subject"="subject"))
 
 nd_nolanechange <- no_lane_df %>%  dplyr::filter(Drive == "ND") 

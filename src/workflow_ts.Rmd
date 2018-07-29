@@ -1,0 +1,448 @@
+---
+title: "Distracted Driving Workflow"
+output: 
+    html_document: 
+        toc: true
+        toc_float: true
+        toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(cache = TRUE)
+
+library(rstan)
+library(dplyr)
+library(ggplot2)
+library(gridExtra)
+library(grid)
+library(here)
+library(foreach)
+library(doParallel)
+
+source(here::here("src", "codebase", "stan_utility.R"))
+source(here::here("src", "codebase", "helper.R"))
+options(mc.cores = parallel::detectCores())
+rstan_options(auto_write = TRUE)
+
+df_select <- feather::read_feather(here::here("study_df", "df_select.feather"))
+subject_df <- feather::read_feather(here::here("study_df", "subject_df.feather"))
+no_lane_df <- df_select %>% 
+    dplyr::filter(!dplyr::between(Distance, 5000, 7000)) %>%
+    dplyr::inner_join(subject_df, by=c("Subject"="subject"))
+
+nd_nolanechange <- no_lane_df %>%  dplyr::filter(Drive == "ND") 
+md_nolanechange <- no_lane_df %>%  dplyr::filter(Drive == "MD") 
+
+gaze_nd <- nd_nolanechange %>%
+    dplyr::group_by(Subject, Drive, gender, age_group, tai, type_ab) %>%
+    dplyr::summarize(sd_lane_pos=sd(Lane.Position, na.rm = TRUE),
+              sd_log_lane_pos=log(sd(Lane.Position, na.rm = TRUE)),
+              sd_y_gaze=sd(Gaze.Y.Pos, na.rm = TRUE),
+              sd_log_y_gaze=log(sd(Gaze.Y.Pos, na.rm=TRUE))) %>%
+    dplyr::filter(!is.na(sd_y_gaze))
+
+gaze_md <- md_nolanechange %>%
+    dplyr::filter(Stimulus != 0) %>%
+    dplyr::group_by(Subject, Drive, gender, age_group, tai, type_ab) %>%
+    dplyr::summarize(sd_lane_pos=sd(Lane.Position, na.rm = TRUE),
+              sd_log_lane_pos=log(sd(Lane.Position, na.rm = TRUE)),
+              sd_y_gaze=sd(Gaze.Y.Pos, na.rm = TRUE),
+              sd_log_y_gaze=log(sd(Gaze.Y.Pos, na.rm=TRUE))) %>%
+    dplyr::filter(!is.na(sd_y_gaze))
+
+seed <- 1000
+rm(df_select, subject_df)
+```
+
+All drivers (separte color) with lane change phase removed. Normal driving (ND) has no stimulus during drive while the sensorimotor driving (MD) has drivers texting during approximately half the drive time.
+
+```{r data_0, echo=FALSE, cache=TRUE, fig.align="center", fig.height=4}
+nd_plot <- ggplot(nd_nolanechange, aes(Distance, Lane.Position)) +
+    geom_line(aes(colour=Subject)) + theme_bw() + 
+    theme(legend.position = "none") + ylim(-5.5, 8) + ggtitle("Normal Driving (ND)")
+md_plot <- ggplot(md_nolanechange, aes(Distance, Lane.Position)) +
+    geom_line(aes(colour=Subject)) + theme_bw() + 
+    theme(legend.position = "none") + ylim(-5.5, 8) + ggtitle("Sensorimotor Driving (MD)")
+grid.arrange(nd_plot, md_plot, ncol=2)
+rm(nd_plot, md_plot)
+```
+
+**Aggregated dataset by each driver and drive:**
+```{r data_1, echo=FALSE, cache=TRUE}
+gaze <- dplyr::bind_rows(gaze_nd, gaze_md)
+knitr::kable(head(gaze))
+```
+
+## 01 Homogeneous aggregate regression model
+
+### 1. Conceptual analysis
+
+Eye gazing in driving creates volatility in both normal and distracted driving. '0' Data is both blinking and eyes off-screen during texting distraction. 
+
+```{r 1.1, echo=FALSE, message=FALSE, fig.align="center", fig.height=4}
+gaze_lane <- ggplot(gaze, aes(sd_log_y_gaze, sd_log_lane_pos)) +
+    geom_point(aes(colour=Drive)) + 
+    theme_bw() + 
+    theme(legend.position = "bottom") +
+    xlab("(Log Std Dev) Eye Gaze Y") + ylab("(Log Std Dev) Lane Pos")
+hist_log_lane <- ggplot(gaze, aes(sd_log_lane_pos)) + 
+    geom_histogram() +
+    theme_bw() + 
+    xlab("(Log Std Dev) Lane position")
+hist_log_gaze <- ggplot(gaze, aes(sd_log_y_gaze)) + 
+    geom_histogram() +
+    theme_bw() + 
+    xlab("(Log Std Dev) Eye gaze")
+grid.arrange(gaze_lane, hist_log_lane, hist_log_gaze, ncol=3)
+rm(gaze_lane, hist_log_lane, hist_log_gaze)
+```
+
+### 2. Define observations
+
+$$y_n \sim \mathcal{N}(\alpha_0 + \beta x_n, \sigma) $$
+
+$y_n:$ Log std dev of lane position
+
+$x_n:$ Log std dev of y-axis eye gaze
+
+$\beta:$ Effect of std in eye gaze
+
+$\alpha_0:$ Intercept of lane position
+
+### 3. Identify relevant summary statistics
+Log of the average lane position for each population(s)
+
+### 4. Build Generative model
+
+```{r 1.4, cache=FALSE}
+writeLines(readLines(here("src", "stan", "sim_model_1a.stan")))
+
+gen_homo <- stan(here("src", "stan", "sim_model_1a.stan"),
+                 iter=1000, refresh=1000, warmup=0, chains=1, 
+                 algorithm="Fixed_param", seed=seed)
+```
+
+### 5. Analyze generative model
+
+#### Analyze prior predictive distribution
+
+```{r 1.5.1}
+gen_homo_extract <- rstan::extract(gen_homo)
+simu_xs <- gen_homo_extract$x
+simu_log_ys <- gen_homo_extract$log_y
+
+hist(gen_homo_extract$log_y, main="", xlab="Log y")
+```
+
+#### Fit simulated observations and evaluate
+
+```{r 1.5.2.1}
+writeLines(readLines(here::here("src", "stan", "model_1a.stan")))
+
+N <- length(gen_homo_extract$x)
+x <- gen_homo_extract$x
+log_y <- gen_homo_extract$log_y
+
+fit_homo_gen <- stan(here::here("src", "stan", "model_1a.stan"),
+                     data=list(N, x, log_y))
+check_all_diagnostics(fit_homo_gen)
+fit_homo_gen
+```
+
+**Posterior behaviors**
+
+Z-Score of beta / sigma:
+
+```{r 1.5.2.2, echo=FALSE}
+params_fit_homo <- extract(fit_homo_gen)
+z_beta <- abs(mean(params_fit_homo$beta) - -2) / sd(params_fit_homo$beta)
+z_sigma <- abs(mean(params_fit_homo$sigma) - 0.5) / sd(params_fit_homo$sigma)
+
+s2_beta <- 1 - sd(params_fit_homo$beta)^2 / 5^2
+s2_sigma <- 1 - sd(params_fit_homo$sigma)^2 / 5^2
+```
+
+$Z_{\beta}$ = `r z_beta`
+
+$Z_{\sigma}$ = `r z_sigma`
+
+$s^2_{\beta}$ =  `r s2_beta`
+
+$s^2_{\sigma}$ = `r s2_sigma`
+
+Z-score below 1 indiciates accurate posterior and posterior shrinkage near 1 indicates highly informative observations
+
+### 6. Fit observations and evaluate
+
+```{r 1.6}
+x <- gaze_nd$sd_log_y_gaze
+N <- length(x)
+log_y <- gaze_nd$sd_log_lane_pos
+fit_homo_act <- stan(here::here("src", "stan", "model_1a.stan"),
+                     data=list(N, x, log_y))
+fit_homo_act
+check_all_diagnostics(fit_homo_act)
+```
+
+### 7. Analyze posterior predictive distribution
+
+```{r 1.7, message=FALSE}
+plot(fit_homo_act)
+mean(log_y)
+mean(extract(fit_homo_act)$ave_log_y_ppc)
+sd(extract(fit_homo_act)$ave_log_y_ppc)
+```
+
+Posterior predictive check of log_y's appears consistent
+
+## 02 Heterogeneous aggregate model: Normal driving only
+
+### 1. Conceptual analysis
+
+Visually, difference in the variance of the age cohorts leads to the belief that this effect should be modeled separately
+
+```{r 2.1, fig.align="center"}
+ggplot(gaze_nd, aes(age_group, sd_log_lane_pos)) + geom_violin()
+```
+
+### 2. Define observations
+
+$$y_n \sim \mathcal{N}(\alpha_0 + \alpha_i + \beta x_n, \sigma) $$
+
+In addition to previous defined in homogeneous model, add the $\alpha_{i}$ (Effect of age group). 
+
+### 3. Identify relevant summary statistic:
+
+Same as before
+
+### 4. Generative model
+
+```{r 2.4}
+writeLines(readLines(here("src", "stan", "sim_model_2b.stan")))
+
+gen_hetero <- stan(here("src", "stan", "sim_model_2b.stan"),
+                   iter=1000, warmup=0, chains=1, algorithm="Fixed_param", seed=seed)
+```
+
+### 5. Analyze generative model
+
+#### Analyze prior predictive distribution
+
+```{r 2.5.1}
+gen_hetero_extract <- rstan::extract(gen_hetero)
+par(mfrow=c(1, 2))
+hist(gen_homo_extract$log_y, xlab="Log y", main="Homogeneous population")
+hist(gen_hetero_extract$log_y, xlab="Log y", main="Heterogeneous population")
+par(mfrow=c(1, 1))
+```
+
+#### Fit simulated observations and evaluate
+
+```{r 2.5.2.1}
+writeLines(readLines(here::here("src", "stan", "model_2a.stan")))
+
+N <- length(gen_hetero_extract$x)
+x <- gen_hetero_extract$x
+log_y <- gen_hetero_extract$log_y
+N_age <- length(unique(gen_hetero_extract$age))
+age <- gen_hetero_extract$age
+fit_hetero_gen <- stan(here::here("src", "stan", "model_2a.stan"),
+                     data=list(N, x, log_y, N_age, age))
+check_all_diagnostics(fit_hetero_gen)
+fit_hetero_gen
+```
+
+**Posterior behaviors**
+
+Z-Score of beta / sigma:
+
+```{r 2.5.2.2, echo=FALSE}
+params_fit_hetero <- extract(fit_hetero_gen)
+z_beta <- abs(mean(params_fit_hetero$beta) - -2) / sd(params_fit_hetero$beta)
+z_sigma <- abs(mean(params_fit_hetero$sigma) - 0.5) / sd(params_fit_hetero$sigma)
+z_age_1 <- abs(mean(params_fit_hetero$alpha_age[, 1]) - 0.25) / sd(params_fit_hetero$alpha_age[, 1])
+z_age_2 <- abs(mean(params_fit_hetero$alpha_age[, 2]) - -0.25) / sd(params_fit_hetero$alpha_age[, 2])
+
+s2_beta <- 1 - sd(params_fit_hetero$beta)^2 / 5^2
+s2_sigma <- 1 - sd(params_fit_hetero$sigma)^2 / 5^2
+s2_age_1 <- 1 - sd(params_fit_hetero$alpha_age[, 1])^2 / 5^2
+s2_age_2 <- 1 - sd(params_fit_hetero$alpha_age[, 2])^2 / 5^2
+```
+
+$Z_{\beta}$ = `r z_beta`
+
+$Z_{\sigma}$ = `r z_sigma`
+
+$Z_{\alpha_{1}}$ = `r z_age_1`
+
+$Z_{\alpha_{2}}$ = `r z_age_2`
+
+$s^2_{\beta}$ =  `r s2_beta`
+
+$s^2_{\sigma}$ = `r s2_sigma`
+
+$s^2_{\alpha_{1}}$ = `r s2_age_1`
+
+$s^2_{\alpha_{2}}$ = `r s2_age_2`
+
+Z-score below 1 indiciates accurate posterior and posterior shrinkage near 1 indicates highly informative observations
+
+### 6. Fit observations and evaluate
+
+```{r 2.6}
+x <- gaze_nd$sd_log_y_gaze
+N <- length(x)
+log_y <- gaze_nd$sd_log_lane_pos
+age <- as.integer(as.factor(gaze_nd$age_group))
+N_age <- length(unique(age))
+
+fit_hetero_act <- stan(here::here("src", "stan", "model_2a.stan"),
+                       data=list(N, x, log_y, N_age, age))
+fit_hetero_act
+check_all_diagnostics(fit_hetero_act)
+```
+
+### 7. Analyze posterior predictive distribution
+
+Not applicable if only using average log y as ppc
+
+Effect of age appears negligble
+
+## 03 Homogeneous aggregate model: Texting driving
+
+### 1. Conceptual analysis
+
+Texting should have a much larger variance in eye gaze and correspondingly the variance of the lane position should also be affected.
+
+### 2. Define observations
+
+$$y_n \sim \mathcal{N}(\alpha_0 + \alpha_j + \beta x_n, \sigma) $$
+
+Same as homogeneous model except with stimulus for texting $\alpha_{j}$. This will only include periods where texting was active (Phase 2, phase 4). See figure in Time series single-driver model in red areas.
+
+### 3. Identify relevant summary statistic:
+
+Same as previous, average log of std dev of lane position
+
+### 4. Generative model
+
+```{r 3.4}
+writeLines(readLines(here("src", "stan", "sim_model_3b.stan")))
+
+gen_texting <- stan(here("src", "stan", "sim_model_3b.stan"),
+                    iter=1000, warmup=0, chains=1, algorithm="Fixed_param", seed=seed)
+```
+
+### 5. Analyze generative model
+
+#### Analyze prior predictive distribution
+
+```{r 3.5.1}
+gen_texting_extract <- rstan::extract(gen_texting)
+par(mfrow=c(1, 2))
+hist(gen_homo_extract$log_y, xlab="Log y", main="Homogeneous population")
+hist(gen_texting_extract$log_y, xlab="Log y", main="Texting population")
+par(mfrow=c(1, 1))
+```
+
+#### Fit simulated observations and evaluate
+
+```{r 3.5.2.1}
+writeLines(readLines(here::here("src", "stan", "model_3a.stan")))
+
+N <- length(gen_texting_extract$x)
+x <- gen_texting_extract$x
+log_y <- gen_texting_extract$log_y
+N_texting <- length(unique(gen_texting_extract$texting))
+texting <- gen_texting_extract$texting
+fit_texting_gen <- stan(here::here("src", "stan", "model_3a.stan"),
+                        data=list(N, x, log_y, N_texting, texting))
+check_all_diagnostics(fit_texting_gen)
+fit_texting_gen
+```
+
+**Posterior behaviors**
+
+Z-Score of beta / sigma:
+
+```{r 3.5.2.2, echo=FALSE}
+params_fit_texting <- extract(fit_texting_gen)
+z_beta <- abs(mean(params_fit_texting$beta) - -2) / sd(params_fit_texting$beta)
+z_sigma <- abs(mean(params_fit_texting$sigma) - 0.5) / sd(params_fit_texting$sigma)
+z_texting_1 <- abs(mean(params_fit_texting$alpha_texting[, 1]) - 0.25) / sd(params_fit_texting$alpha_texting[, 1])
+z_texting_2 <- abs(mean(params_fit_texting$alpha_texting[, 2]) - -0.25) / sd(params_fit_texting$alpha_texting[, 2])
+
+s2_beta <- 1 - sd(params_fit_texting$beta)^2 / 5^2
+s2_sigma <- 1 - sd(params_fit_texting$sigma)^2 / 5^2
+s2_texting_1 <- 1 - sd(params_fit_texting$alpha_texting[, 1])^2 / 5^2
+s2_texting_2 <- 1 - sd(params_fit_texting$alpha_texting[, 2])^2 / 5^2
+```
+
+$Z_{\beta}$ = `r z_beta`
+
+$Z_{\sigma}$ = `r z_sigma`
+
+$Z_{\alpha_{texting_1}}$ = `r z_texting_1`
+
+$Z_{\alpha_{texting_2}}$ = `r z_texting_2`
+
+$s^2_{\beta}$ =  `r s2_beta`
+
+$s^2_{\sigma}$ = `r s2_sigma`
+
+$s^2_{\alpha_{texting_1}}$ = `r s2_texting_1`
+
+$s^2_{\alpha_{texting_2}}$ = `r s2_texting_2`
+
+Z-score below 1 indiciates accurate posterior and posterior shrinkage near 1 indicates highly informative observations
+
+
+### 6. Fit observations and evaluate
+
+```{r 3.6}
+x <- c(gaze_nd$sd_log_y_gaze, gaze_md$sd_log_y_gaze)
+N <- length(x)
+log_y <- c(gaze_nd$sd_log_lane_pos, gaze_md$sd_log_lane_pos)
+N_texting <- 2
+texting <- c(rep(1, length(gaze_nd$sd_log_lane_pos)), 
+             rep(2, length(gaze_md$sd_log_lane_pos)))
+fit_texting_act <- stan(here::here("src", "stan", "model_3a.stan"),
+                        data=list(N, x, log_y, N_texting, texting))
+check_all_diagnostics(fit_texting_act)
+fit_texting_act
+```
+
+```{r}
+mean(gaze_nd$sd_log_lane_pos)
+mean(gaze_md$sd_log_lane_pos)
+```
+
+Posterior check of average log_y_ppc looks reasonable. 
+
+### 7. Analyze posterior predictive distribution
+
+Not applicable?
+
+Much bigger effect with texting on variance of lane position
+
+## 04 Hierarchical model 
+
+Pooling effect of texting from hierarchical prior on texting
+
+```{r 4.0}
+writeLines(readLines(here::here('src', 'stan', 'pooled_texting.stan')))
+```
+
+## 05 Other population cohort analysis
+
+```{r 7.0, echo=FALSE}
+gender_plot <- ggplot(gaze_nd, aes(gender, sd_log_lane_pos)) + geom_violin()
+age_plot <- ggplot(gaze_nd, aes(age_group, sd_log_lane_pos)) + geom_violin()
+tai_plot <- ggplot(gaze_nd, aes(tai, sd_log_lane_pos)) + geom_point()
+type_plot <- ggplot(gaze_nd, aes(type_ab, sd_log_lane_pos)) + geom_point()
+grid.arrange(gender_plot, age_plot, tai_plot, type_plot, ncol=2)
+rm(gender_plot, age_plot, tai_plot, type_plot)
+```
+
+TAI personality does not appear to be significant effect compared to age, gender, type

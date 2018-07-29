@@ -1,6 +1,12 @@
 .title-slide h1 {
 }
+
 .title-slide h2, .title-slide h3 {
     font-size: 30px;  
     color: #e7e8e2; 
 }
+
+remark.macros.scale = function (percentage) {
+  var url = this;
+  return '<img src="' + url + '" style="width: ' + percentage + '" />';
+};

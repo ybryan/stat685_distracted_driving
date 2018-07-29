@@ -21,31 +21,9 @@ library(foreach)
 library(doParallel)
 
 source(here::here("src", "codebase", "stan_utility.R"))
+source(here::here("src", "codebase", "helper.R"))
 options(mc.cores = parallel::detectCores())
 rstan_options(auto_write = TRUE)
-
-grid_arrange_shared_legend <- function(..., ncol = length(list(...)), nrow = 1, 
-                                       position = c("bottom", "right")) {
-  plots <- list(...)
-  position <- match.arg(position)
-  g <- ggplotGrob(plots[[1]] + theme(legend.position = position))$grobs
-  legend <- g[[which(sapply(g, function(x) x$name) == "guide-box")]]
-  lheight <- sum(legend$height)
-  lwidth <- sum(legend$width)
-  gl <- lapply(plots, function(x) x + theme(legend.position="none"))
-  gl <- c(gl, ncol = ncol, nrow = nrow)
-  combined <- switch(
-      position,
-      "bottom" = arrangeGrob(
-          do.call(arrangeGrob, gl), legend, ncol = 1,
-          heights = unit.c(unit(1, "npc") - lheight, lheight)),
-      "right" = arrangeGrob(
-          do.call(arrangeGrob, gl), legend, ncol = 2,
-          widths = unit.c(unit(1, "npc") - lwidth, lwidth)))
-  grid.newpage()
-  grid.draw(combined)
-  invisible(combined)
-}
 
 df_select <- feather::read_feather(here::here("study_df", "df_select.feather"))
 subject_df <- feather::read_feather(here::here("study_df", "subject_df.feather"))
@@ -95,9 +73,6 @@ rm(nd_plot, md_plot)
 gaze <- dplyr::bind_rows(gaze_nd, gaze_md)
 knitr::kable(head(gaze))
 ```
-
-
-# Aggregated data model 
 
 ## 01 Homogeneous aggregate regression model
 
@@ -459,41 +434,7 @@ Pooling effect of texting from hierarchical prior on texting
 writeLines(readLines(here::here('src', 'stan', 'pooled_texting.stan')))
 ```
 
-## 05 Time series single-driver model
-<span style="color:red">Red</span> indicates periods of stimulus (texting)
-
-```{r, echo=FALSE}
-par(mfrow=c(2, 2))
-t001_nd <- nd_nolanechange[nd_nolanechange$Subject=="T001", ]
-t001_md <- md_nolanechange[md_nolanechange$Subject=="T001", ]
-t001_md_stim <- t001_md[t001_md$Stimulus != 0, ]
-plot(t001_nd$Distance, t001_nd$Gaze.Y.Pos,
-     main="Normal driving: Driver 001", xlab="Distance", ylab="Eye Gaze")
-plot(t001_md$Distance, t001_md$Gaze.Y.Pos, 
-     main="Texting driving: Driver 001", xlab="Distance", ylab="Eye Gaze")
-points(t001_md_stim$Distance, t001_md_stim$Lane.Position, col="red")
-
-plot(t001_nd$Distance, t001_nd$Lane.Position, xlab="Distance", ylab="Lane Position", ylim=c(1, 3))
-plot(t001_md$Distance, t001_md$Lane.Position, xlab="Distance", ylab="Lane Position", ylim=c(1, 3))
-points(t001_md_stim$Distance, t001_md_stim$Lane.Position, col="red")
-par(mfrow=c(1, 1))
-```
-
-1. AR
-2. MA (filtering)
-3. IMA (drift) ARIMA [trends]
-4. Stochastic: Mean constant
-
-## 06 Time series all-driver aggregate inference
-
-```{r 6.1, fig.align="center", echo=FALSE}
-par(mfrow=c(1, 2))
-hist(nd_nolanechange$Gaze.Y.Pos, xlab="Gaze in Y", main="Normal driving", ylim=c(0, 13000))
-hist(md_nolanechange$Gaze.Y.Pos, xlab="Gaze in Y", main="Texting driving", ylim=c(0, 13000))
-par(mfrow=c(1, 1))
-```
-
-## 07 Other population cohort analysis
+## 05 Other population cohort analysis
 
 ```{r 7.0, echo=FALSE}
 gender_plot <- ggplot(gaze_nd, aes(gender, sd_log_lane_pos)) + geom_violin()

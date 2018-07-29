@@ -65,13 +65,13 @@ df_feather <- df %>%
     dplyr::mutate(phase = as.factor(phase))
 subject_df <- subject_bio %>% dplyr::inner_join(psych_df, by=c("subject"= "subject"))
 df <- df_feather %>%  dplyr::select(
-    Subject, Distance, Lane.Position, Drive, Stimulus, phase,
+    Subject, Time, Distance, Lane.Position, LaneOffset, Drive, Stimulus, 
     Gaze.X.Pos, Gaze.Y.Pos, Lft.Pupil.Diameter, Rt.Pupil.Diameter)
-feather::write_feather(df_feather, here::here("study_df", "df.feather"))
+#feather::write_feather(df_feather, here::here("study_df", "df.feather"))
 feather::write_feather(df, here::here("study_df", "df_select.feather"))
-feather::write_feather(subject_df, here::here("study_df", "subject_df.feather"))
-rm(subject_bio, psych_df, subject, df_feather)
-rm(file_paths, dir_path, index_data, phase_convert, drive_map)
+#feather::write_feather(subject_df, here::here("study_df", "subject_df.feather"))
+#rm(subject_bio, psych_df, subject, df_feather)
+#rm(file_paths, dir_path, index_data, phase_convert, drive_map)
 
 ```
 
