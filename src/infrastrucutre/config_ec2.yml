@@ -1,0 +1,46 @@
+- hosts: sandbox 
+  gather_facts: False
+
+  tasks:
+    - name: Add R 3.5 repos
+      apt_repository:
+        repo: deb https://cloud.r-project.org/bin/linux/ubuntu trusty-cran35/
+      become: yes
+
+    - name: Update and install R
+      apt:
+        name: "{{ packages }}" 
+        update_cache: yes
+        allow_unauthenticated: yes
+      vars: 
+        packages:
+          - r-base
+          - r-base-dev
+          - tmux
+          - htop
+          - gdebi-core
+          - libcurl4-gnutls-dev
+      become: yes
+
+    - name: Create Rstudio user/password
+      user:
+        name: rstudio
+        password: $6$eHhqjduJIKoprCNK$8XLBjszNn8Az8uVG9wN70QQUkEvmKGKA74OQxQF6UNcQ85AoyVrgGYz6w0xAW9kJ2cag29UEWCwYfdvYMFyQX1
+      become: yes
+
+    - name: Download RStudio
+      get_url: 
+        url: https://download2.rstudio.org/rstudio-server-1.1.456-amd64.deb
+        dest: /home/ubuntu/rstudio-server-1.1.456-amd64.deb
+
+    - name: install rstudio
+      command: gdebi /home/ubuntu/rstudio-server-1.1.456-amd64.deb
+      become: yes
+
+    - name: Install R packages
+      shell: echo "library.install(c('${item}')"| R --slave --no-save --no-restore-history
+      with_items:
+          - rstan
+          - tidyverse
+          - rmarkdown
+          - here

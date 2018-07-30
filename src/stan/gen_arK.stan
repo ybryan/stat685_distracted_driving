@@ -1,29 +1,15 @@
-// AR(K)
-
 data {
-  int<lower=0> K;
-  int<lower=0> T;
-  real y[T];
-}
-
-transformed data {
-  real alpha = 1.825;
+  int<lower=0> N;
 }
 
 generated quantities {
-  real beta[K];
-  real<lower=0> sigma = fabs(normal_rng(0, 2));
-  real y_ppc[T] = y;
+  real alpha = 1.825;
+  real<lower=0> rho = fabs(normal_rng(0, 0.329));
+  real<lower=0> sigma = fabs(normal_rng(0.2, 0.1));
+  real y_ppc[N];
 
-  for (k in 1:K) {
-    beta[k] = fabs(normal_rng(0, 0.5));
-  }
-
-  for (t in (K + 1):T) {
-    real mu = alpha;
-
-    for (k in 1:K)
-      mu = mu + beta[k] * y[t - k];
-    y_ppc[t] = normal_rng(mu, sigma);
+  y_ppc[1] = alpha;
+  for (n in 2:N) {
+    y_ppc[n] = normal_rng(alpha + rho * y_ppc[n - 1], sigma);
   }
 }

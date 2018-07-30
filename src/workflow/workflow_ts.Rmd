@@ -1,0 +1,398 @@
+---
+title: "Distracted Driving: Time Series Workflow"
+subtitle: "Lane position volatility of texting vs normal driving"
+output: 
+  html_document: 
+    toc: true
+    toc_float: true
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(cache = TRUE)
+library(ggplot2)
+library(gridExtra)
+library(grid)
+library(dplyr)
+library(here)
+library(rstan)
+library(foreach)
+library(doParallel)
+
+c_light <- c("#DCBCBC")
+c_light_highlight <- c("#C79999")
+c_mid <- c("#B97C7C")
+c_mid_highlight <- c("#A25050")
+c_dark <- c("#8F2727")
+c_dark_highlight <- c("#7C0000")
+source(here("src", "codebase", "helper.R"))
+source(here("src", "codebase", "stan_utility.R"))
+
+df_select <- feather::read_feather(here::here("study_df", "df_select.feather"))
+subject_df <- feather::read_feather(here::here("study_df", "subject_df.feather"))
+df <- df_select %>% 
+    dplyr::filter(Distance >= 250) %>%         # Remove driver starts
+    dplyr::filter(Distance <= 11000) %>%       # Remove driver ends
+    dplyr::inner_join(subject_df, by=c("Subject"="subject"))
+
+nd_raw <- df %>%  dplyr::filter(Drive == "ND") 
+md_raw <- df %>%  dplyr::filter(Drive == "MD") 
+rm(subject_df)
+
+df_cleaner <- df %>% 
+    dplyr::filter(!Subject %in% c(
+        "T028", "T032", "T033", "T088")) %>%  # Missing stimulus variable
+    dplyr::filter(!(Subject=="T002")) %>% # Missing eye gaze
+    dplyr::filter(!(Subject=="T003" & Drive=="MD")) %>% 
+    dplyr::filter(!(Subject=="T007")) %>% 
+    dplyr::filter(!(Subject=="T008" & Drive=="MD")) %>% 
+    dplyr::filter(!(Subject=="T015")) %>% 
+    dplyr::filter(!(Subject=="T017")) %>% 
+    dplyr::filter(!(Subject=="T023")) %>% 
+    dplyr::filter(!(Subject=="T027")) %>% 
+    dplyr::filter(!(Subject=="T028" & Drive=="MD")) %>% 
+    dplyr::filter(!(Subject=="T029")) %>% 
+    dplyr::filter(!(Subject=="T032")) %>% 
+    dplyr::filter(!(Subject=="T036")) %>% 
+    dplyr::filter(!(Subject=="T038")) %>% 
+    dplyr::filter(!(Subject=="T042")) %>% 
+    dplyr::filter(!(Subject=="T047")) %>% 
+    dplyr::filter(!(Subject=="T055" & Drive=="ND")) %>% 
+    dplyr::filter(!(Subject=="T086" & Drive=="ND")) %>%
+    dplyr::filter(
+        !dplyr::between(Distance, 5000, 7000)) %>% # Remove lane change
+    dplyr::mutate(half=ifelse(Distance < 5000, 1, 2)) %>%
+    dplyr::mutate(Stimulus=as.factor(Stimulus))
+```
+```{r plot, fig.height=4}
+rect <- data.frame(xmin=5000, xmax=6750, ymin=-Inf, ymax=Inf)
+
+nd_plot <- ggplot(nd_raw, aes(Distance, Lane.Position)) + 
+    geom_rect(data=rect, aes(xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax),
+              color="transparent", alpha=0.25, inherit.aes = FALSE) +
+    geom_line(aes(colour=Subject)) + 
+    theme_bw() + 
+    theme(legend.position = "none") + 
+    ggtitle("Normal Driving (ND)") +
+    xlab("Distance (m)") + 
+    ylab("Lane Position(m)") +
+    coord_cartesian(ylim=c(-5.5, 7)) +
+    annotate("text", x=5750, y=-4, 
+             label="Removed\nLane Change", angle=90, color="Red", 
+             size=4, hjust=0)
+
+md_plot <- ggplot(md_raw, aes(Distance, Lane.Position)) +
+    geom_rect(data=rect, aes(xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax),
+              color="transparent", alpha=0.25, inherit.aes = FALSE) +
+    geom_line(aes(colour=Subject)) + 
+    xlab("Distance (m)") + ylab("Lane Position(m)") +
+    theme_bw() + 
+    theme(legend.position = "none") + 
+    ylim(-5.5, 8) + 
+    ggtitle("Texting Driving (MD)") +
+    coord_cartesian(ylim=c(-5.5, 7)) +
+    annotate("text", x=5750, y=-4, 
+             label="Removed\nLane Change", angle=90, color="Red", 
+             size=4, hjust=0)
+
+grid.arrange(md_plot, nd_plot, ncol=2)
+rm(nd_plot, md_plot, rect, nd_raw, md_raw)
+```
+```{r bins}
+
+rm(df_select, df)
+
+df_1 <- df_cleaner %>%  dplyr::filter(half==1) %>%
+    dplyr::group_by(Subject, Drive) %>%
+    dplyr::mutate(ntile=ntile(Distance, 200)) %>% # Bins for resampling
+    dplyr::select(-half, -Time, -Lft.Pupil.Diameter, -Rt.Pupil.Diameter, 
+                  -LaneOffset) %>% 
+    dplyr::arrange(Subject, Drive, Distance) %>% 
+    dplyr::group_by(Subject, Drive, ntile) %>%
+    dplyr::mutate(mrank=dplyr::row_number()) %>% dplyr::filter(mrank==1) %>%
+    dplyr::select(-mrank) %>%  dplyr::ungroup()
+
+df_2 <- df_cleaner %>%  dplyr::filter(half==2) %>%
+    dplyr::group_by(Subject, Drive) %>%
+    dplyr::mutate(ntile=ntile(Distance, 190)) %>% # Bins for resampling
+    dplyr::select(-half, -Time, -Lft.Pupil.Diameter, -Rt.Pupil.Diameter, 
+                  -LaneOffset) %>% 
+    dplyr::arrange(Subject, Drive, Distance) %>% 
+    dplyr::group_by(Subject, Drive, ntile) %>%
+    dplyr::mutate(mrank=dplyr::row_number()) %>% dplyr::filter(mrank==1) %>%
+    dplyr::select(-mrank) %>%  dplyr::ungroup()
+
+rm(df_cleaner)
+```
+
+* Each color is a separate driver (N=68)
+* Data resampled at 390 data points (Prior to lane change: 200; After lane change: 190)
+* Two models, one prior to lane change, one after
+* Missing data filtered
+
+# 1.0 Single driver (T021): Univariate Data
+
+```{r lane_plot, fig.height=3}
+rect_prior <- data.frame(xmin=0, xmax=5000, ymin=-Inf, ymax=Inf)
+rect_post <- data.frame(xmin=7000, xmax=11000, ymin=-Inf, ymax=Inf)
+
+subject <- "T021"
+nd_single <- dplyr::bind_rows(df_1, df_2) %>% 
+    dplyr::filter(Subject==subject & Drive=="ND")
+md_single <- dplyr::bind_rows(df_1, df_2) %>% 
+    dplyr::filter(Subject==subject & Drive=="MD")
+
+nd_lane <- ggplot(nd_single, aes(Distance, Lane.Position)) +
+    geom_rect(data=rect_prior, aes(xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax),
+              color="transparent", alpha=0.5, inherit.aes = FALSE, 
+              fill="palegreen1") +
+    geom_rect(data=rect_post, aes(xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax),
+              color="transparent", alpha=0.5, inherit.aes = FALSE, 
+              fill="lightsalmon1") +
+    geom_line() +
+    geom_point(aes(colour=Stimulus), size=0.25) +
+    theme_bw() + 
+    theme(legend.position = "none") + 
+    ggtitle("Normal Driving (ND)") +
+    xlab("Distance (m)") + 
+    ylab("Lane Position(m)") +
+    coord_cartesian(ylim=c(1.5, 2.5)) +
+    annotate("text", x=0, y=2.45, 
+             label="First half", color="Black",  size=4, hjust=0) +
+    annotate("text", x=7000, y=2.45, 
+             label="Second half", color="Black",  size=4, hjust=0) +
+    scale_color_hue(labels=c("None", "Texting"))
+
+md_lane <- ggplot(md_single, aes(Distance, Lane.Position)) +
+    geom_line() +
+    geom_rect(data=rect_prior, aes(xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax),
+              color="transparent", alpha=0.5, inherit.aes = FALSE, 
+              fill="palegreen1") +
+    geom_rect(data=rect_post, aes(xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax),
+              color="transparent", alpha=0.5, inherit.aes = FALSE, 
+              fill="lightsalmon1") +
+    geom_point(aes(colour=Stimulus), size=0.25) +
+    theme_bw() + 
+    theme(legend.position = "none") + 
+    ggtitle("Texting Driving (MD)") +
+    xlab("Distance (m)") + 
+    ylab("Lane Position(m)") +
+    coord_cartesian(ylim=c(1.5, 2.5)) +
+    annotate("text", x=0, y=2.45, 
+             label="First half", color="Black",  size=4, hjust=0) +
+    annotate("text", x=7000, y=2.45, 
+             label="Second half", color="Black",  size=4, hjust=0) +
+    scale_color_hue(labels=c("None", "Texting"))
+
+grid_arrange_shared_legend(md_lane, nd_lane, ncol=2)
+rm(nd_lane, md_lane)
+```
+```{r eye_plot, fig.height=3}
+md_eye <- ggplot(md_single, aes(Distance, Gaze.Y.Pos)) +
+    geom_rect(data=rect_prior, aes(xmin=xmin, xmax=xmax, 
+                                   ymin=ymin, ymax=ymax),
+              color="transparent", alpha=0.5, inherit.aes = FALSE, 
+              fill="palegreen1") +
+    geom_rect(data=rect_post, aes(xmin=xmin, xmax=xmax,
+                                  ymin=ymin, ymax=ymax),
+              color="transparent", alpha=0.5, inherit.aes = FALSE, 
+              fill="lightsalmon1") +
+    geom_point(aes(colour=Stimulus), size=1) +
+    theme_bw() + 
+    theme(legend.position = "none") + 
+    ggtitle("Texting Driving (ND)") +
+    xlab("Distance (m)") + 
+    ylab("Y Eye Gaze (m)") +
+    coord_cartesian(ylim=c(0, 1000)) +
+    annotate("text", x=0, y=245, 
+             label="First half", color="Black",  size=4, hjust=0) +
+    annotate("text", x=7000, y=245, 
+             label="Second half", color="Black",  size=4, hjust=0) +
+    scale_color_hue(labels=c("None", "Texting"))
+nd_eye <- ggplot(nd_single, aes(Distance, Gaze.Y.Pos)) +
+    geom_rect(data=rect_prior, aes(xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax),
+              color="transparent", alpha=0.5, inherit.aes = FALSE, 
+              fill="palegreen1") +
+    geom_rect(data=rect_post, aes(xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax),
+              color="transparent", alpha=0.5, inherit.aes = FALSE,
+              fill="lightsalmon1") +
+    geom_point(aes(colour=Stimulus), size=1) +
+    theme_bw() + 
+    theme(legend.position = "none") + 
+    ggtitle("Normal Driving (ND)") +
+    xlab("Distance (m)") + 
+    ylab("Y Eye Gaze (m)") +
+    annotate("text", x=0, y=245, 
+             label="First half", color="Black",  size=4, hjust=0) +
+    annotate("text", x=7000, y=245, 
+             label="Second half", color="Black",  size=4, hjust=0) +
+    coord_cartesian(ylim=c(0, 1000)) +
+    scale_color_hue(labels=c("None", "Texting"))
+
+grid_arrange_shared_legend(md_eye, nd_eye, ncol=2)
+rm(subject, nd_eye, md_eye, nd_single, md_single)
+```
+
+**Modelling only first half**
+
+Sample ACF
+
+```{r, fig.height=3}
+subject <- "T021"
+conf.level <- 0.95
+nd_half <- df_1 %>% dplyr::filter(Subject==subject & Drive=="ND")
+md_half <- df_1 %>% dplyr::filter(Subject==subject & Drive=="MD")
+acf_nd <- acf(nd_half$Lane.Position, plot=FALSE)
+acf_md <- acf(md_half$Lane.Position, plot=FALSE)
+acf_nd_df <- with(acf_nd, data.frame(lag, acf))
+acf_md_df <- with(acf_md, data.frame(lag, acf))
+ciline <- qnorm((1 - conf.level)/2)/sqrt(length(nd_half$Lane.Position))
+
+nd_acf <- ggplot(acf_nd_df, aes(lag, acf)) +
+    geom_segment(aes(xend=lag, yend=0)) +
+    geom_hline(aes(yintercept=0)) + 
+    geom_hline(aes(yintercept= -ciline), linetype=2, color='darkblue') +
+    geom_hline(aes(yintercept= ciline), linetype=2, color='darkblue') +
+    theme_bw() + 
+    theme(legend.position = "none") + 
+    ggtitle("Normal Driving (ND)") +
+    xlab("Lag") + 
+    ylab("ACF")
+md_acf <- ggplot(acf_md_df, aes(lag, acf)) +
+    geom_segment(aes(xend=lag, yend=0)) +
+    geom_hline(aes(yintercept=0)) + 
+    geom_hline(aes(yintercept= -ciline), linetype=2, color='darkblue') +
+    geom_hline(aes(yintercept= ciline), linetype=2, color='darkblue') +
+    theme_bw() + 
+    theme(legend.position = "none") + 
+    ggtitle("Texting Driving (MD)") +
+    xlab("Lag") + 
+    ylab("ACF")
+grid.arrange(md_acf, nd_acf, ncol=2)
+rm(subject, conf.level, acf_nd, acf_md, acf_nd_df, acf_md_df, ciline, md_acf, nd_acf, rect_post, rect_prior)
+```
+
+## 1.1 AR(1) of Normal driving (ND)
+
+### 1.1.1 Conceptual Analysis
+
+Single driver staying in the middle of a lane (3.65m wide). Should expect that as the driver moves out of the middle of lane to correct by reducing lane position back to middle (~1.825m). Would expect that mean and variance is constant.
+
+### 1.1.2 Define observations
+
+$$K: \textrm{# of AR terms (1)}$$
+$$N: \textrm{Number of observations}$$
+$$y_n: \textrm{Lane Position (meters)}$$
+
+```{r 1.1.2}
+writeLines(readLines(here("src", "stan", "arK.stan"), n=4))
+```
+
+### 1.1.3 Identify relevant summary statistics
+
+Correlogram as summary statistic
+
+### 1.1.4 Build a generative model (prior & likelihood)
+
+In order to stay stationary, $\rho$ should be below 1 and should be positive as the driver moves outside the middle of lane to regress back to the mean. Prior for $\rho$ should be below 1. Half-normal prior with standard deviation = `0.324` allows that only 0.1% of the prior probability mass be above $\rho$ = 1
+
+$$\rho \sim \mathcal{H}(0.324^2)$$
+$$\alpha \sim \mathcal{N}(1.825, 0.05^2)$$
+$$\sigma \sim \mathcal{H}(2^2)$$
+
+```{r 1.1.4a}
+rho <- seq(0, 1.5, 0.001)
+
+plot(rho, dnorm(rho, 0, 0.4293), type="l", col=c_dark_highlight, lwd=2,
+     xlab=expression(rho), ylab="Prior Density", yaxt='n')
+
+rho99 <- seq(0, 1, 0.001)
+dens <- dnorm(rho99, 0, 0.4293)
+rho99 <- c(rho99, 1, 0)
+dens <- c(dens, 0, 0)
+
+polygon(rho99, dens, col=c_dark, border=NA)
+```
+```{r 1.1.4b}
+writeLines(readLines(here("src", "stan", "gen_arK.stan")))
+```
+
+### 1.1.5 Analyze the generative ensemble
+```{r 1.1.5a, echo=TRUE}
+R <- 1000
+y <- nd_half$Lane.Position; N <- length(y);
+simu_data <- list("N" = N)
+fit <- stan(here("src", "stan", "gen_arK.stan"), 
+            data=simu_data, iter=R, warmup=0, chains=1, refresh=R, seed=4838282,
+            algorithm="Fixed_param")
+simu_rhos <- extract(fit)$rho
+simu_ys <- extract(fit)$y
+```
+
+#### Analyze the prior predictive distribution
+```{r 1.1.5b}
+B <- 24
+counts <- sapply(1:R, function(r) acf(simu_ys[r,], plot=FALSE)$acf)
+probs <- c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
+cred <- sapply(1:B, function(b) quantile(counts[b, ], probs=probs))
+
+idx <- rep(1:B, each=2)
+x <- sapply(1:length(idx), function(b) if(b %% 2 == 0) idx[b] + 0.5 else idx[b] - 0.5)
+pad_cred <- do.call(cbind, lapply(idx, function(n) cred[1:9, n]))
+
+plot(1, type="n", main="Prior Predictive Correlogram",
+     xlim=c(0.5, B + 0.5), xlab="y", ylim=c(0, max(cred[9,])), ylab="")
+ 
+polygon(c(x, rev(x)), c(pad_cred[1,], rev(pad_cred[9,])),
+        col = c_light, border = NA)
+polygon(c(x, rev(x)), c(pad_cred[2,], rev(pad_cred[8,])),
+        col = c_light_highlight, border = NA)
+polygon(c(x, rev(x)), c(pad_cred[3,], rev(pad_cred[7,])),
+        col = c_mid, border = NA)
+polygon(c(x, rev(x)), c(pad_cred[4,], rev(pad_cred[6,])),
+        col = c_mid_highlight, border = NA)
+lines(x, pad_cred[5,], col=c_dark, lwd=2)
+
+rm(R, B, counts, cred, idx, x, pad_cred)
+```
+
+#### Fit simulated observations and evaluate
+```{r 1.1.5c}
+tryCatch({
+    registerDoParallel(makeCluster(detectCores()))
+    simu_list <- t(data.matrix(data.frame(simu_rhos, simu_ys)))
+    
+    fit_model <- stan_model(here::here("src", "stan", "ar1.stan"))
+    ensemble_output <- foreach(simu=simu_list, .combine='cbind') %dopar% {
+        simu_rho <- simu[1]
+        simu_ys <- simu[2:(N + 1)];
+        
+        # Fir the simulated observation
+        input_data <- list("N" = N, "y" = simu_ys)
+        capture.output(library(rstan))
+        capture.output(fit <- sampling(fit_model, data=input_data, seed=4938483))
+        
+        # Compute diagnostics
+        util <- new.env()
+        source(here::here('src', 'codebase', 'stan_utility.R', local=util))
+        warning_code <- util$check_all_diagnostics(fit, quiet=TRUE)
+        
+        # Compute rank of prior draw with respect to thinned posterior draws
+        sbc_rank <- sum(simu_rho <- extract(fit)$rho[seq(1, 4000 - 8, 8)])
+        
+        # Compute posterior sensitivities
+        s <- summary(fit, probs=c(), pars='rho')$summary
+        post_mean_rho <- s[, 1]
+        post_sd_rho <- s[, 3]
+        prior_sd_rho <- 0.329
+        z_score <- abs((post_mean_rho - simu_rho) / post_sd_rho)
+        shrinkage <- 1 - (post_sd_rho / prior_sd_rho)**2
+        c(warning_code, sbc_rank, z_score, shrinkage)
+    }
+}, finally={stopImplicitCluster()})
+```
+
+## 1.2 AR(1) of Texting driving
+
+# 2.0 All drivers: Longitudinal [repeated measures] data

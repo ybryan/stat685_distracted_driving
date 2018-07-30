@@ -9,6 +9,7 @@ output:
     nature:
           highlightLines: true
 ---
+exclude:true 
 
 ```{r setup, include=FALSE}
 options(htmltools.dir.version = FALSE)
@@ -45,17 +46,18 @@ class: inverse, center, bottom, fullscale
 # Look where you want to go!
 
 ---
+exclude:true 
 
 # Experiment
 
 - .small[.bold[Controlled] simulated driving experiment<sup>1</sup> to asses driving behavior]
 
-- .small[Multiple different stressors for drives (cognitive, emotional, sensorimotor .blue[(texting)]]
+- .small[Multiple different stressors for drives (cognitive, emotional, sensorimotor .blue[(texting)]])
 
 - .small[Sensors captured vehicle information and driver outputs]
 
-```{r, echo=FALSE, out.width= "600px"}
-knitr::include_graphics("etc/setup.png")
+```{r, echo=FALSE, out.width="400px", fig.align="center"}
+knitr::include_graphics("https://media.nature.com/lw926/nature-assets/sdata/2017/sdata2017110/images_hires/sdata2017110-f1.jpg")
 ```
 
 .footnote[
@@ -79,9 +81,8 @@ nd_plot <- ggplot(nd_raw, aes(Distance, Lane.Position)) +
     ylab("Lane Position(m)") +
     coord_cartesian(ylim=c(-5.5, 7)) +
     geom_rect(data=rect, aes(xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax),
-              color="transparent",
-              alpha=0.5,
-              inherit.aes = FALSE)
+              color="transparent", alpha=0.5, inherit.aes = FALSE) +
+    annotate("text", x=5500, y=-3, label="Removed", angle=90, color="Red", size=9)
 
 md_plot <- ggplot(md_raw, aes(Distance, Lane.Position)) +
     geom_line(aes(colour=Subject)) + 
@@ -92,9 +93,8 @@ md_plot <- ggplot(md_raw, aes(Distance, Lane.Position)) +
     ggtitle("Texting Driving (MD)") +
     coord_cartesian(ylim=c(-5.5, 7)) +
     geom_rect(data=rect, aes(xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax),
-              color="transparent",
-              alpha=0.5,
-              inherit.aes = FALSE)
+              color="transparent", alpha=0.5, inherit.aes = FALSE) +
+    annotate("text", x=5500, y=-3, label="Removed", angle=90, color="Red", size=9)
 
 grid.arrange(nd_plot, md_plot, ncol=2)
 rm(nd_plot, md_plot, nd_raw, md_raw, rect)
@@ -192,6 +192,7 @@ class: inverse, center, middle
     
 .small[Data modelled separately by before and after lane change]
 
+---
 # Head and tail observation issue
 
 ```{r, echo=FALSE, warning=FALSE, fig.align="center", fig.height=3.5}
