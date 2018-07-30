@@ -1,0 +1,34 @@
+- hosts: sandbox 
+  gather_facts: False
+  become: yes
+  become_user: rstudio
+
+  tasks:
+    - name: Install R packages
+      command: /usr/bin/Rscript --slave --no-save --no-restore-history -e "if (! ('{{item}}' %in% installed.packages()[,'Package'])) install.packages(pkgs={{item}}, repos=c('http://cran.rstudio.com'))"
+      with_items:
+        - rstan
+        - tidyverse
+        - here
+        - feather
+        - devtools
+        - foreach
+        - doParallel
+
+    - name: Install R github packages
+      command: /usr/bin/Rscript --slave --no-save --no-restore-history -e "devtools::install_github('{{item}}')"
+      with_items:
+        - yihui/xaringan
+
+    - name: Synchronization structured_study_data
+      synchronize:
+        src: /Users/bryanyu/Dropbox/STATS/structured_study_data
+        dest: /home/rstudio/stat685_distracted_driving/
+        recursive: yes
+
+    - name: Synchronization study_df
+      synchronize:
+        src: /Users/bryanyu/Dropbox/STATS/study_df
+        dest: /home/rstudio/stat685_distracted_driving/
+        recursive: yes
+

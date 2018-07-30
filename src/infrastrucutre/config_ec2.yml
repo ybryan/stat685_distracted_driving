@@ -19,8 +19,28 @@
           - tmux
           - htop
           - gdebi-core
+          - libssl-dev
+          - libxml2-dev
           - libcurl4-gnutls-dev
       become: yes
+
+    - name: apt-get clean
+      apt:
+        autoclean: yes
+        autoremove: yes
+      become: yes
+
+    - name: remove apt lists
+      file: 
+        path: "{{ dirs }}"
+        state: absent
+        follow: yes
+      become: yes
+      vars:
+        dirs:
+          - /var/lib/apt/lists/* 
+          - /tmp/* 
+          - /var/tmp/*
 
     - name: Create Rstudio user/password
       user:
@@ -33,14 +53,12 @@
         url: https://download2.rstudio.org/rstudio-server-1.1.456-amd64.deb
         dest: /home/ubuntu/rstudio-server-1.1.456-amd64.deb
 
-    - name: install rstudio
-      command: gdebi /home/ubuntu/rstudio-server-1.1.456-amd64.deb
+    - name: copy ssh key with owner and permissions
+      copy:
+        src: /Users/bryanyu/.ssh/id_rsa
+        dest: /home/rstudio/.ssh/id_rsa
+        mode: 0600
+        owner: rstudio
+        group: rstudio
       become: yes
-
-    - name: Install R packages
-      shell: echo "library.install(c('${item}')"| R --slave --no-save --no-restore-history
-      with_items:
-          - rstan
-          - tidyverse
-          - rmarkdown
-          - here
+         
