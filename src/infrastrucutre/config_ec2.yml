@@ -53,6 +53,10 @@
         url: https://download2.rstudio.org/rstudio-server-1.1.456-amd64.deb
         dest: /home/ubuntu/rstudio-server-1.1.456-amd64.deb
 
+    - name: Install RStudio
+      command: gdebi rstudio-server-1.1.456-amd64.deb
+      become: yes
+
     - name: copy ssh key with owner and permissions
       copy:
         src: /Users/bryanyu/.ssh/id_rsa
