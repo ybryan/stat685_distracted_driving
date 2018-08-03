@@ -336,7 +336,7 @@ writeLines(readLines(here("src", "stan", "gen_arK.stan")))
 
 ### Analyze the generative ensemble
 ```{r 1.1.5a, echo=TRUE, cache=FALSE}
-R <- 500
+R <- 1000
 y <- nd_half$Lane.Position; N <- length(y);
 simu_data <- list("N" = N)
 fit <- stan(here("src", "stan", "gen_arK.stan"), 
@@ -419,18 +419,14 @@ tryCatch({
   }
 }, finally={ stopImplicitCluster() })
 ```
+
 ```{r}
 warning_code <- ensemble_output[1,]
 if (sum(warning_code) != 0) {
   print ("Some simulated posterior fits in the generative ensemble encountered problems!")
-  for (r in 1:R) {
-    if (warning_code[r] != 0) {
-      print(sprintf('Replication %s of %s', r, R))
-      util$parse_warning_code(warning_code[r])
-      print(sprintf('Simulated lambda = %s', simu_rhos[r]))
-      print(" ")
-    }
-  }
+  warnings <- data.frame(warning_code=ensemble_output[1,]) %>%
+    group_by(warning_code) %>% summarize(n())
+  util$parse_warning_code(warnings$warning_code)
 } else {
   print ("No posterior fits in the generative ensemble encountered problems!")
 }
@@ -460,9 +456,6 @@ shrinkage <- ensemble_output[4,]
 plot(shrinkage, z_score, col=c("#8F272720"), lwd=2, pch=16, cex=0.8,
      xlim=c(0, 1), xlab="Posterior Shrinkage",
      ylim=c(0, 5), ylab="Posterior z-Score")
-```
-```{r}
-input_data <- 
 ```
 
 ## 1.2 AR(1) of Texting driving
