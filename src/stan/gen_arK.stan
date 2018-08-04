@@ -5,7 +5,8 @@ data {
 generated quantities {
   real alpha = 1.825;
   real rho = 0.8;
-  real<lower=0> sigma = 1;
+  real<lower=0> sigma = .2;
+  
   real y_ppc[N];
 
   y_ppc[1] = 1.825;
