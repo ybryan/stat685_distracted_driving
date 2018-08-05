@@ -66,10 +66,12 @@ check_n_eff <- function(fit, quiet=FALSE) {
   no_warning <- TRUE
   for (n in 1:N) {
     ratio <- fit_summary[,5][n] / iter
-    if (ratio < 0.001 & names(fit_summary[,5][n]) != "y_ppc[1]") {
-      if (!quiet) print(sprintf('n_eff / iter for parameter %s is %s!',
-                        rownames(fit_summary)[n], ratio))
-      no_warning <- FALSE
+    if (ratio < 0.001) {
+      if (names(fit_summary[,5][n]) != "y_ppc[1]") {
+        if (!quiet) print(sprintf('n_eff / iter for parameter %s is %s!',
+                          rownames(fit_summary)[n], ratio))
+        no_warning <- FALSE
+      }
     }
   }
   if (no_warning) {

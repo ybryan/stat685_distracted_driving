@@ -1,13 +1,17 @@
 ---
 title: "Distracted Driving: Time Series Workflow"
-author: "Bryan Yu (bryanyu@tamu.edu)"
-subtitle: "Assignment 5:\nLane position volatility of texting vs normal driving"
-date: "2018 August 5"
+author: "Bryan Yu"
+subtitle: "Lane position volatility of texting vs normal driving"
 output: 
-  pdf_document: 
+  html_document: 
     fig_caption: yes
+    theme: spacelab 
     highlight: pygments
+    toc: true
+    toc_depth: 3
     number_sections: TRUE
+    toc_float: 
+      smooth_scroll: FALSE
 ---
 
 ```{r setup, include=FALSE}
@@ -72,33 +76,9 @@ df_cleaner <- df %>%
     dplyr::mutate(Stimulus=as.factor(Stimulus))
 ```
 
-# Abstract
+**The raw data**
 
-## Objective: 
-Model volatility of lane positioning with regards to texting effect and population effects (age cohort)
-
-## Summary
-
-**Assignment 2-3:** 
-Linear regression on aggregated data set (per driver & drive, modelling standard deviation of lane positioning) and found divergence with model. The standard deviation of eye gaze and different population cohorts is inadequate to understanding the volatility of lane positioning. (Not included in this report to keep report concise)
-
-**Assignment 4**:
-Focused this analysis on driver T001 with time-series AR(1) in the sensorimotor driving (MD) section with phase 1 and 2 with bayesian posterior distribution checks. I had some difficulties with using generative model on covariates in the time series model but believe I can solve this with more time.
-
-**Assignment 5**:
-Binned data to have equal sample sizes across all drivers and fit AR(1) model on normal driving. From accuracy perspective, model looks good but there are some samples with divergences, this is likely a minor issue for a simple model. AR(1) was shown not to be effective in the texting driving as expected. Modelled GARCH(1) with texting driving but still working on fit.
-
-## Future steps
-
-1. Iterate on time series model with adding a stochastic volatilty model or heteroscedastic model (ARCH) with covariates
-    
-    * Handle '0' data on eye gaze more effectively, bi-modal/tri-modal mixture of blinking / distraction / eyes on road
-
-2. Inference for all drivers \newline
-
-3. Change-point model (account for driving phases)
-
-```{r plot, fig.height=3}
+```{r plot, fig.height=4}
 rect <- data.frame(xmin=5000, xmax=6750, ymin=-Inf, ymax=Inf)
 
 nd_plot <- ggplot(nd_raw, aes(Distance, Lane.Position)) + 
@@ -163,8 +143,6 @@ rm(df_cleaner)
 * Data resampled at 390 data points (Prior to lane change: 200; After lane change: 190)
 * Two models, one prior to lane change, one after
 * Missing data filtered
-
-\newpage
 
 # Single driver (T021): Univariate Data
 
@@ -271,8 +249,6 @@ grid_arrange_shared_legend(md_eye, nd_eye, ncol=2)
 rm(subject, nd_eye, md_eye, nd_single, md_single)
 ```
 
-\newpage
-
 **Modelling only first half**
 
 Sample ACF
@@ -311,8 +287,6 @@ md_acf <- ggplot(acf_md_df, aes(lag, acf)) +
 grid.arrange(md_acf, nd_acf, ncol=2)
 rm(subject, conf.level, acf_nd, acf_md, acf_nd_df, acf_md_df, ciline, md_acf, nd_acf, rect_post, rect_prior)
 ```
-
-\newpage
 
 ## AR(1) of Normal driving (ND)
 
@@ -361,7 +335,7 @@ writeLines(readLines(here("src", "stan", "gen_arK.stan")))
 ```
 
 ### Analyze the generative ensemble
-```{r 1.1.5a, echo=TRUE, results="hide"}
+```{r 1.1.5a, echo=TRUE, cache=FALSE}
 R <- 1000
 y <- nd_half$Lane.Position; N <- length(y);
 simu_data <- list("N" = N)
@@ -373,7 +347,7 @@ simu_ys <- extract(fit)$y
 ```
 
 #### Analyze the prior predictive distribution
-```{r 1.1.5b}
+```{r 1.1.5b, cache=FALSE}
 B <- 24
 counts <- sapply(1:R, function(r) acf(simu_ys[r,], plot=FALSE)$acf)
 probs <- c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
@@ -400,7 +374,7 @@ rm(B, counts, cred, idx, x, pad_cred)
 ```
 
 #### Fit simulated observations and evaluate
-```{r 1.1.5c, results="hide"}
+```{r 1.1.5c, cache=FALSE}
 tryCatch({
   registerDoParallel(makeCluster(detectCores()))
   simu_list <- t(data.matrix(data.frame(simu_rhos, simu_ys)))
@@ -440,7 +414,7 @@ tryCatch({
 }, finally={ stopImplicitCluster() })
 ```
 
-```{r 1.1.5d}
+```{r 1.1.5d, cache=FALSE}
 warning_code <- ensemble_output[1,]
 if (sum(warning_code) != 0) {
   print ("Some simulated posterior fits in the generative ensemble encountered problems!")
@@ -457,7 +431,7 @@ if (sum(warning_code) != 0) {
 }
 ```
 
-```{r 1.1.5e}
+```{r 1.1.5e, cache=FALSE}
 # rho
 sbc_rank <- ensemble_output[2,]
 sbc_hist <- hist(sbc_rank, seq(0, 500, 25) - 0.5, plot=FALSE)
@@ -476,7 +450,7 @@ segments(x0=0, x1=500, y0=mid, y1=mid, col=c("#999999"), lwd=2)
 plot(sbc_hist, col=c_dark, border=c_dark_highlight, add=T)
 ```
 
-```{r 1.1.5f}
+```{r 1.1.5f, cache=FALSE}
 z_score <- ensemble_output[3,]
 shrinkage <- ensemble_output[4,]
 
@@ -487,7 +461,7 @@ plot(shrinkage, z_score, col=c("#8F272720"), lwd=2, pch=16, cex=0.8,
 ```
 
 ### Fit obs and evaluate
-```{r 1.1.6a, fig.height=3, results="hide"}
+```{r 1.1.6a, fig.height=3, cache=FALSE}
 input_data <- list("y"= y, "N"=N)
 fit <- stan(file=here('src', 'stan', 'ar1.stan'), data=input_data,
                       seed=493483, refresh=2000)
@@ -534,7 +508,7 @@ legend("bottomright", c("actual", "pred (avg)", "pred (50% CI)", "pred (90% CI)"
 
 ### Analyze the posterior predictive distribution
 
-```{r 1.1.7a}
+```{r 1.1.7a, cache=FALSE}
 B <- 23
 obs_acf <- acf(input_data$y, plot=FALSE)$acf
 
@@ -564,91 +538,9 @@ lines(x, pad_obs, col="white", lty=1, lw=2.5)
 lines(x, pad_obs, col="black", lty=1, lw=2)
 ```
 
-\newpage
+# Computing Environment
 
-## AR(1) of Texting driving (MD)
-
-### Fit obs and evaluate
-```{r 1.2.6a, fig.height=3, results="hide"}
-input_data <- list("y"= md_half$Lane.Position, "N"=length(md_half$Lane.Position))
-fit <- stan(file=here('src', 'stan', 'ar1.stan'), data=input_data, seed=493483, 
-            refresh=2000)
-util$check_all_diagnostics(fit)
-params <- extract(fit)
-par(mfrow=c(1, 3))
-hist(params$alpha, main="", xlab="alpha", yaxt="n", ylab="",
-     col=c_dark, border=c_dark_highlight)
-hist(params$rho, main="", xlab="rho", yaxt="n", ylab="",
-     col=c_dark, border=c_dark_highlight)
-hist(params$sigma, main="", xlab="sigma", yaxt="n", ylab="",
-     col=c_dark, border=c_dark_highlight)
-par(mfrow=c(1, 1))
+```{r env}
+devtools::session_info("rstan")
 ```
 
-```{r 1.2.6b}
-knitr::kable(summary(fit, prob=c(.50), pars=c('rho', 'alpha', 'sigma'))$summary)
-```
-
-```{r 1.2.6c}
-post <- as.matrix(fit)
-sel <- grep("y_ppc", colnames(post))
-# compute the credible intervals
-ci50 <- matrix(NA, nrow = length(sel), ncol = 2)
-ci90 <- matrix(NA, nrow = length(sel), ncol = 2)
-for (i in 1:length(sel)) {
-  ci50[i,] <- quantile(post[,sel[i]], prob = c(0.25, 0.75), names = FALSE)
-  ci90[i,] <- quantile(post[,sel[i]], prob = c(0.05, 0.95), names = FALSE)
-}
-
-plot(0, type= "n", 
-     xlim = c(0,length(input_data$y)), ylim = range(post[, sel]),
-     xlab = "Distance", ylab = "Lane Position", main = "AR(1) Model - Texting Driving")
-t <- 1:input_data$N
-polygon(c(rev(t), t), c(rev(ci90[,1]), ci90[,2]), col = "#FF668830", border = FALSE)
-polygon(c(rev(t), t), c(rev(ci50[,1]), ci50[,2]), col = "#FF668880", border = FALSE)
-
-lines(1:input_data$N, colMeans(post[,sel]), col = "#40D2FE", lwd = 2)
-# plot true series
-lines(input_data$y, col = "#808080", lwd = 2)
-legend("bottomright", c("actual", "pred (avg)", "pred (50% CI)", "pred (90% CI)"),
-       col = c("#808080", "#40D2FE", "#FF668880", "#FF668830"),
-       lwd = c(2,2,2), text.font=0.5)
-```
-
-### Analyze the posterior predictive distribution
-
-```{r 1.2.7a}
-B <- 23
-obs_acf <- acf(input_data$y, plot=FALSE)$acf
-
-idx <- rep(1:B, each=2)
-x <- sapply(1:length(idx), function(b) if(b %% 2 == 0) idx[b] + 0.5 else idx[b] - 0.5)
-pad_obs <- do.call(cbind, lapply(idx, function(n) obs_acf[n]))
-
-counts <- sapply(1:4000, function(n) acf(params$y_ppc[n,], plot=FALSE)$acf)
-probs <- c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
-cred <- sapply(1:B, function(b) quantile(counts[b, ], probs=probs))
-pad_cred <- do.call(cbind, lapply(idx, function(n) cred[1:9, n]))
-
-plot(1, type="n", main="Posterior Predictive Correlogram",
-     xlim=c(0.5, B + 0.5), xlab="Lag", ylim=c(0, max(cred[9,])), ylab="")
- 
-polygon(c(x, rev(x)), c(pad_cred[1,], rev(pad_cred[9,])),
-        col = c_light, border = NA)
-polygon(c(x, rev(x)), c(pad_cred[2,], rev(pad_cred[8,])),
-        col = c_light_highlight, border = NA)
-polygon(c(x, rev(x)), c(pad_cred[3,], rev(pad_cred[7,])),
-        col = c_mid, border = NA)
-polygon(c(x, rev(x)), c(pad_cred[4,], rev(pad_cred[6,])),
-        col = c_mid_highlight, border = NA)
-lines(x, pad_cred[5,], col=c_dark, lwd=2)
-
-lines(x, pad_obs, col="white", lty=1, lw=2.5)
-lines(x, pad_obs, col="black", lty=1, lw=2)
-```
-
-\newpage
-
-## GARCH(1) of Texting driving (MD)
-
-$$\sigma_t^2 = \alpha_0 + \alpha_{texting} + \alpha_1 a^2_{t-1} + \beta \sigma^2_{t-1}$$

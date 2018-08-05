@@ -4,7 +4,7 @@ data {
 
 generated quantities {
   real alpha = 0.25;
-  real rho = 0.6;
+  real<lower=0, upper=1> rho = beta_rng(1.5, 1.5);
   real<lower=0> sigma = 0.2;
   
   real y_ppc[N];

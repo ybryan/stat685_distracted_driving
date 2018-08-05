@@ -1,0 +1,47 @@
+---
+title: "Distracted Driving: Time Series Workflow"
+author: "Bryan Yu"
+subtitle: "Assignment 5:\nLane position volatility of texting vs normal driving"
+date: "2018 August 5"
+output: 
+  html_document: 
+    fig_caption: yes
+    theme: spacelab 
+    highlight: pygments
+    toc: true
+    toc_depth: 3
+    number_sections: TRUE
+    toc_float: 
+      smooth_scroll: FALSE
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(cache = TRUE)
+library(ggplot2)
+library(gridExtra)
+library(grid)
+library(dplyr)
+library(here)
+library(rstan)
+library(foreach)
+library(doParallel)
+
+util <- new.env()
+source(here::here('src', 'codebase', 'stan_utility.R'), local=util)
+source(here("src", "codebase", "helper.R"))
+
+c_light <- c("#DCBCBC")
+c_light_highlight <- c("#C79999")
+c_mid <- c("#B97C7C")
+c_mid_highlight <- c("#A25050")
+c_dark <- c("#8F2727")
+c_dark_highlight <- c("#7C0000")
+load(here("data", "md_half.RData"))
+```
+
+## GARCH(1) of Texting driving (MD)
+
+$$\alpha_i: \textrm{Texting indication}$$
+
+$$\sigma_t^2 = \alpha_0 + \alpha_{i} + \alpha_1 a^2_{t-1} + \beta \sigma^2_{t-1}$$
