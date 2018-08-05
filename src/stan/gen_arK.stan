@@ -3,9 +3,9 @@ data {
 }
 
 generated quantities {
-  real alpha = 1.825;
-  real rho = 0.8;
-  real<lower=0> sigma = .2;
+  real alpha = 0.25;
+  real rho = 0.6;
+  real<lower=0> sigma = 0.2;
   
   real y_ppc[N];
 

@@ -320,11 +320,11 @@ $$\sigma \sim \mathcal{H}(2^2)$$
 ```{r 1.1.4a}
 rho <- seq(0, 1.5, 0.001)
 
-plot(rho, dnorm(rho, 0, 0.4293), type="l", col=c_dark_highlight, lwd=2,
+plot(rho, dnorm(rho, 0, 0.5), type="l", col=c_dark_highlight, lwd=2,
      xlab=expression(rho), ylab="Prior Density", yaxt='n')
 
 rho99 <- seq(0, 1, 0.001)
-dens <- dnorm(rho99, 0, 0.4293)
+dens <- dnorm(rho99, 0, 0.5)
 rho99 <- c(rho99, 1, 0)
 dens <- c(dens, 0, 0)
 
@@ -345,7 +345,6 @@ fit <- stan(here("src", "stan", "gen_arK.stan"),
             data=simu_data, iter=R, warmup=0, chains=1, refresh=R, seed=4838282,
             algorithm="Fixed_param")
 simu_rhos <- extract(fit)$rho
-simu_alphas <- extract(fit)$alpha
 simu_ys <- extract(fit)$y
 ```
 
@@ -381,7 +380,7 @@ rm(B, counts, cred, idx, x, pad_cred)
 tryCatch({
   registerDoParallel(makeCluster(detectCores()))
 
-  simu_list <- t(data.matrix(data.frame(simu_rhos, simu_ys, simu_alphas)))
+  simu_list <- t(data.matrix(data.frame(simu_rhos, simu_ys)))
 
   # Compile the posterior fit model
   fit_model = stan_model(file=here::here('src', 'stan', 'ar1.stan'))
@@ -389,7 +388,6 @@ tryCatch({
   ensemble_output <- foreach(simu=simu_list,
                              .combine='cbind') %dopar% {
     simu_rho <- simu[1]
-    simu_alpha <- 
     simu_y <- simu[2:(N + 1)];
 
     # Fit the simulated observation
@@ -407,8 +405,7 @@ tryCatch({
     warning_code <- util$check_all_diagnostics(fit, quiet=TRUE)
 
     # Compute rank of prior draw with respect to thinned posterior draws
-    sbc_rank_rho   <- sum(simu_rho   < extract(fit)$rho[seq(1, 4000 - 8, 8)])
-    sbc_rank_alpha <- sum(simu_alpha < extract(fit)$alpha[seq(1, 4000 - 8, 8)])
+    sbc_rank_rho   <- sum(simu_rho < extract(fit)$rho[seq(1, 4000 - 8, 8)])
 
     # Compute posterior sensitivities
     s <- summary(fit, probs = c(), pars='rho')$summary
@@ -418,16 +415,8 @@ tryCatch({
     z_score_rho <- abs((post_mean_rho - simu_rho ) / post_sd_rho)
     shrinkage_rho <- 1 - (post_sd_rho / prior_sd_rho)**2
     
-    s <- summary(fit, probs = c(), pars='alpha')$summary
-    post_mean_alpha <- s[,1]
-    post_sd_alpha <- s[,3]
-    prior_sd_alpha <- 1.825
-    z_score_alpha <- abs((post_mean_alpha - simu_alpha) / post_sd_alpha)
-    shrinkage_alpha <- 1 - (post_sd_alpha / prior_sd_alpha)**2
-
-    c(warning_code,
-      sbc_rank_rho, z_score_rho, shrinkage_rho,
-      sbc_rank_alpha, z_score_alpha, shrinkage_alpha)
+    c(warning_code, 
+      sbc_rank_rho, z_score_rho, shrinkage_rho)
   }
 }, finally={ stopImplicitCluster() })
 ```
@@ -445,20 +434,17 @@ if (sum(warning_code) != 0) {
 ```
 
 ```{r 1.1.5e}
+# Rho
 sbc_rank <- ensemble_output[2,]
-sbc_hist <- hist(sbc_rank, seq(0, 500, 25) - 0.5,
-                 col=c_dark, border=c_dark_highlight, plot=FALSE)
-plot(sbc_hist, main="", xlab="Prior Rank", yaxt='n', ylab="")
-
+sbc_hist <- hist(sbc_rank, seq(0, 500, 25) - 0.5, plot=FALSE)
+plot(sbc_hist, main="", xlab="Prior Rank (rho)", yaxt='n', ylab="")
 low <- qbinom(0.005, R, 1 / 20)
 mid <- qbinom(0.5, R, 1 / 20)
 high <- qbinom(0.995, R, 1 / 20)
 bar_x <- c(-10, 510, 500, 510, -10, 0, -10)
 bar_y <- c(high, high, mid, low, low, mid, high)
-
 polygon(bar_x, bar_y, col=c("#DDDDDD"), border=NA)
 segments(x0=0, x1=500, y0=mid, y1=mid, col=c("#999999"), lwd=2)
-
 plot(sbc_hist, col=c_dark, border=c_dark_highlight, add=T)
 ```
 
@@ -467,6 +453,7 @@ z_score <- ensemble_output[3,]
 shrinkage <- ensemble_output[4,]
 
 plot(shrinkage, z_score, col=c("#8F272720"), lwd=2, pch=16, cex=0.8,
+     main="rho",
      xlim=c(0, 1), xlab="Posterior Shrinkage",
      ylim=c(0, 5), ylab="Posterior z-Score")
 ```
@@ -524,29 +511,6 @@ idx <- rep(1:B, each=2)
 x <- sapply(1:length(idx), function(b) if(b %% 2 == 0) idx[b] + 0.5 else idx[b] - 0.5)
 pad_obs <- do.call(cbind, lapply(idx, function(n) obs_acf[n + 1]))
 
-# TODO
-counts <- sapply(1:4000, function(r) acf(simu_ys[r,], plot=FALSE)$acf)
-
-probs <- c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
-cred <- sapply(1:B, function(b) quantile(counts[b, ], probs=probs))
-
-x <- sapply(1:length(idx), function(b) if(b %% 2 == 0) idx[b] + 0.5 else idx[b] - 0.5)
-pad_cred <- do.call(cbind, lapply(idx, function(n) cred[1:9, n]))
-
-plot(1, type="n", main="Prior Predictive Correlogram",
-     xlim=c(0.5, B + 0.5), xlab="y", ylim=c(0, max(cred[9,])), ylab="")
- 
-polygon(c(x, rev(x)), c(pad_cred[1,], rev(pad_cred[9,])),
-        col = c_light, border = NA)
-polygon(c(x, rev(x)), c(pad_cred[2,], rev(pad_cred[8,])),
-        col = c_light_highlight, border = NA)
-polygon(c(x, rev(x)), c(pad_cred[3,], rev(pad_cred[7,])),
-        col = c_mid, border = NA)
-polygon(c(x, rev(x)), c(pad_cred[4,], rev(pad_cred[6,])),
-        col = c_mid_highlight, border = NA)
-lines(x, pad_cred[5,], col=c_dark, lwd=2)
-
-rm(B, counts, cred, idx, x, pad_cred)
 ```
 
 
