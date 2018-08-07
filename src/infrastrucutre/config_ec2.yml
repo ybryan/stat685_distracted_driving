@@ -22,6 +22,8 @@
           - libssl-dev
           - libxml2-dev
           - libcurl4-gnutls-dev
+          - texlive
+          - texlive-latex-extra
       become: yes
 
     - name: apt-get clean
