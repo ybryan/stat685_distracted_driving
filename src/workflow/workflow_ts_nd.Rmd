@@ -300,10 +300,9 @@ $$N: \textrm{Number of observations}$$
 $$y_n: \textrm{Lane Position (meters)}$$
 
 ```{r 1.1.2}
-writeLines(readLines(here("src", "stan", "ar1.stan"), n=4))
+writeLines(readLines(here("src", "stan", "ar1.stan"), n=5))
 ```
 
-$$y_n \sim \mathcal{N}(\alpha + \rho_{n-1}, \sigma)$$
 
 ### Identify relevant summary statistics
 
@@ -314,6 +313,8 @@ Correlogram as summary statistic
 In order to stay stationary, $\rho$ should be below 1 and should be positive as the driver moves outside the middle of lane to regress back to the mean. Prior for $\rho$ should be below 1. Symmetric beta prior will be useful to to have a bounded (0, 1) distribution.
 
 $$\rho \sim \textrm{Beta}(1.5, 1.5)$$
+
+$$y_n \sim \mathcal{N}(\alpha + \rho_{n-1}, \sigma)$$
 
 ```{r 1.1.4a}
 rho <- seq(-.1, 1.1, 0.001)
@@ -330,24 +331,30 @@ polygon(rho99, dens, col=c_dark, border=NA)
 rm(rho, rho99)
 ```
 
+**Generative Ensemble**
 ```{r 1.1.4b}
 writeLines(readLines(here("src", "stan", "gen_arK.stan")))
 ```
 
+**AR(1) Model**
+```{r 1.1.4c}
+writeLines(readLines(here("src", "stan", "ar1.stan")))
+```
+
 ### Analyze the generative ensemble
-```{r 1.1.5a, echo=TRUE, cache=FALSE}
+```{r 1.1.5a, echo=TRUE, results="hide"}
 R <- 1000
 y <- nd_half$Lane.Position; N <- length(y);
 simu_data <- list("N" = N)
 fit <- stan(here("src", "stan", "gen_arK.stan"), 
-            data=simu_data, iter=R, warmup=0, chains=1, refresh=R, seed=1000,
+            data=simu_data, iter=R, warmup=0, chains=1, refresh=R, seed=234987,
             algorithm="Fixed_param")
 simu_rhos <- extract(fit)$rho
 simu_ys <- extract(fit)$y
 ```
 
 #### Analyze the prior predictive distribution
-```{r 1.1.5b, cache=FALSE}
+```{r 1.1.5b, results="hide"}
 B <- 24
 counts <- sapply(1:R, function(r) acf(simu_ys[r,], plot=FALSE)$acf)
 probs <- c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
@@ -374,7 +381,7 @@ rm(B, counts, cred, idx, x, pad_cred)
 ```
 
 #### Fit simulated observations and evaluate
-```{r 1.1.5c, cache=FALSE}
+```{r 1.1.5c, echo=TRUE, results="hide"}
 tryCatch({
   registerDoParallel(makeCluster(detectCores()))
   simu_list <- t(data.matrix(data.frame(simu_rhos, simu_ys)))
@@ -389,7 +396,7 @@ tryCatch({
     input_data <- list("N" = N, "y" = simu_y)
 
     capture.output(library(rstan))
-    capture.output(fit <- sampling(fit_model, data=input_data, seed=4938483))
+    capture.output(fit <- sampling(fit_model, data=input_data, seed=2349))
 
     # Compute diagnostics
     util <- new.env()
@@ -405,7 +412,7 @@ tryCatch({
     post_sd_rho <- s[,3]
     prior_sd_rho <- sqrt(2*2 / ((2 + 2)^2 * (2 + 2 + 1))) # THIS!!!
     
-    z_score_rho <- abs((post_mean_rho - simu_rho ) / post_sd_rho)
+    z_score_rho <- ((post_mean_rho - simu_rho ) / post_sd_rho)
     shrinkage_rho <- 1 - (post_sd_rho / prior_sd_rho)**2
     
     c(warning_code, 
@@ -414,8 +421,9 @@ tryCatch({
 }, finally={ stopImplicitCluster() })
 ```
 
-```{r 1.1.5d, cache=FALSE}
+```{r 1.1.5d}
 warning_code <- ensemble_output[1,]
+bad_r <- c()
 if (sum(warning_code) != 0) {
   print ("Some simulated posterior fits in the generative ensemble encountered problems!")
   for (r in 1:R) {
@@ -424,6 +432,7 @@ if (sum(warning_code) != 0) {
       util$parse_warning_code(warning_code[r])
       print(sprintf('Simulated rho = %s', simu_rhos[r]))
       print(" ")
+      bad_r <- c(bad_r, r)
     }
   }
 } else {
@@ -431,7 +440,16 @@ if (sum(warning_code) != 0) {
 }
 ```
 
-```{r 1.1.5e, cache=FALSE}
+```{r 1.1.5.d0}
+green <- c("#00FF0080")
+plot(apply(simu_ys, 1, mean), simu_rhos, 
+     xlab="Mean (y)", ylab="rho",
+     col=c("#8F272720"), pch=16, cex=0.8, lwd=2)
+points(mean(simu_ys[bad_r,]), simu_rhos[bad_r], col=green, pch=16, cex=0.8)
+```
+
+
+```{r 1.1.5e}
 # rho
 sbc_rank <- ensemble_output[2,]
 sbc_hist <- hist(sbc_rank, seq(0, 500, 25) - 0.5, plot=FALSE)
@@ -450,18 +468,18 @@ segments(x0=0, x1=500, y0=mid, y1=mid, col=c("#999999"), lwd=2)
 plot(sbc_hist, col=c_dark, border=c_dark_highlight, add=T)
 ```
 
-```{r 1.1.5f, cache=FALSE}
+```{r 1.1.5f}
 z_score <- ensemble_output[3,]
 shrinkage <- ensemble_output[4,]
 
 plot(shrinkage, z_score, col=c("#8F272720"), lwd=2, pch=16, cex=0.8,
      main="rho",
      xlim=c(0, 1), xlab="Posterior Shrinkage",
-     ylim=c(0, 5), ylab="Posterior z-Score")
+     ylab="Posterior z-Score")
 ```
 
 ### Fit obs and evaluate
-```{r 1.1.6a, fig.height=3, cache=FALSE}
+```{r 1.1.6a, fig.height=3, results="hide"}
 input_data <- list("y"= y, "N"=N)
 fit <- stan(file=here('src', 'stan', 'ar1.stan'), data=input_data,
                       seed=493483, refresh=2000)
@@ -476,11 +494,12 @@ hist(params$sigma, main="", xlab="sigma", yaxt="n", ylab="",
      col=c_dark, border=c_dark_highlight)
 par(mfrow=c(1, 1))
 ```
+
 ```{r 1.1.6b}
 knitr::kable(summary(fit, prob=c(.50), pars=c('rho', 'alpha', 'sigma'))$summary)
 ```
 
-```{r 1.1.6c, cache=FALSE}
+```{r 1.1.6c}
 post <- as.matrix(fit)
 sel <- grep("y_ppc", colnames(post))
 # compute the credible intervals
@@ -508,7 +527,7 @@ legend("bottomright", c("actual", "pred (avg)", "pred (50% CI)", "pred (90% CI)"
 
 ### Analyze the posterior predictive distribution
 
-```{r 1.1.7a, cache=FALSE}
+```{r 1.1.7a}
 B <- 23
 obs_acf <- acf(input_data$y, plot=FALSE)$acf
 
@@ -536,11 +555,5 @@ lines(x, pad_cred[5,], col=c_dark, lwd=2)
 
 lines(x, pad_obs, col="white", lty=1, lw=2.5)
 lines(x, pad_obs, col="black", lty=1, lw=2)
-```
-
-# Computing Environment
-
-```{r env}
-devtools::session_info("rstan")
 ```
 

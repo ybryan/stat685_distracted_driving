@@ -1,6 +1,5 @@
 data {
   int<lower=0> T;
-  int<lower=1, upper=2> texting[T];
   real y[T];
 }
 parameters {

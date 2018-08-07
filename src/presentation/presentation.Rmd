@@ -18,6 +18,13 @@ library(gridExtra)
 library(grid)
 library(dplyr)
 library(here)
+library(rstan)
+library(foreach)
+library(doParallel)
+
+util <- new.env()
+source(here::here('src', 'codebase', 'stan_utility.R'), local=util)
+source(here("src", "codebase", "helper.R"))
 
 c_light <- c("#DCBCBC")
 c_light_highlight <- c("#C79999")
@@ -25,7 +32,6 @@ c_mid <- c("#B97C7C")
 c_mid_highlight <- c("#A25050")
 c_dark <- c("#8F2727")
 c_dark_highlight <- c("#7C0000")
-
 df_select <- feather::read_feather(here::here("study_df", "df_select.feather"))
 subject_df <- feather::read_feather(here::here("study_df", "subject_df.feather"))
 df <- df_select %>% 
@@ -36,6 +42,31 @@ df <- df_select %>%
 nd_raw <- df %>%  dplyr::filter(Drive == "ND") 
 md_raw <- df %>%  dplyr::filter(Drive == "MD") 
 rm(subject_df)
+
+df_cleaner <- df %>% 
+    dplyr::filter(!Subject %in% c(
+        "T028", "T032", "T033", "T088")) %>%  # Missing stimulus variable
+    dplyr::filter(!(Subject=="T002")) %>% # Missing eye gaze
+    dplyr::filter(!(Subject=="T003" & Drive=="MD")) %>% 
+    dplyr::filter(!(Subject=="T007")) %>% 
+    dplyr::filter(!(Subject=="T008" & Drive=="MD")) %>% 
+    dplyr::filter(!(Subject=="T015")) %>% 
+    dplyr::filter(!(Subject=="T017")) %>% 
+    dplyr::filter(!(Subject=="T023")) %>% 
+    dplyr::filter(!(Subject=="T027")) %>% 
+    dplyr::filter(!(Subject=="T028" & Drive=="MD")) %>% 
+    dplyr::filter(!(Subject=="T029")) %>% 
+    dplyr::filter(!(Subject=="T032")) %>% 
+    dplyr::filter(!(Subject=="T036")) %>% 
+    dplyr::filter(!(Subject=="T038")) %>% 
+    dplyr::filter(!(Subject=="T042")) %>% 
+    dplyr::filter(!(Subject=="T047")) %>% 
+    dplyr::filter(!(Subject=="T055" & Drive=="ND")) %>% 
+    dplyr::filter(!(Subject=="T086" & Drive=="ND")) %>%
+    dplyr::filter(
+        !dplyr::between(Distance, 5000, 7000)) %>% # Remove lane change
+    dplyr::mutate(half=ifelse(Distance < 5000, 1, 2)) %>%
+    dplyr::mutate(Stimulus=as.factor(Stimulus))
 ```
 
 background-position: 50% 50%
@@ -46,7 +77,6 @@ class: inverse, center, bottom, fullscale
 # Look where you want to go!
 
 ---
-exclude:true 
 
 # Experiment
 
@@ -68,23 +98,13 @@ knitr::include_graphics("https://media.nature.com/lw926/nature-assets/sdata/2017
 
 # Objective
 
-```{r, echo=FALSE, warning=FALSE, fig.height=3, fig.align="center"}
+- .small[Model volatility of lane positioning with regards to texting effect and population effects (age cohort)]
 
+```{r echo=FALSE}
 rect <- data.frame(xmin=5000, xmax=6750, ymin=-Inf, ymax=Inf)
-
-nd_plot <- ggplot(nd_raw, aes(Distance, Lane.Position)) + 
-    geom_line(aes(colour=Subject)) + 
-    theme_bw() + 
-    theme(legend.position = "none") + 
-    ggtitle("Normal Driving (ND)") +
-    xlab("Distance (m)") + 
-    ylab("Lane Position(m)") +
-    coord_cartesian(ylim=c(-5.5, 7)) +
+ggplot(md_raw, aes(Distance, Lane.Position)) +
     geom_rect(data=rect, aes(xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax),
-              color="transparent", alpha=0.5, inherit.aes = FALSE) +
-    annotate("text", x=5500, y=-3, label="Removed", angle=90, color="Red", size=9)
-
-md_plot <- ggplot(md_raw, aes(Distance, Lane.Position)) +
+              color="transparent", alpha=0.25, inherit.aes = FALSE) +
     geom_line(aes(colour=Subject)) + 
     xlab("Distance (m)") + ylab("Lane Position(m)") +
     theme_bw() + 
@@ -92,124 +112,23 @@ md_plot <- ggplot(md_raw, aes(Distance, Lane.Position)) +
     ylim(-5.5, 8) + 
     ggtitle("Texting Driving (MD)") +
     coord_cartesian(ylim=c(-5.5, 7)) +
-    geom_rect(data=rect, aes(xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax),
-              color="transparent", alpha=0.5, inherit.aes = FALSE) +
-    annotate("text", x=5500, y=-3, label="Removed", angle=90, color="Red", size=9)
-
-grid.arrange(nd_plot, md_plot, ncol=2)
-rm(nd_plot, md_plot, nd_raw, md_raw, rect)
-```
-
-.footnote[
-[1] Each color line is a separate driver (N=68)
-
-[2] During middle of drive, each driver performed a lane change, this section of data was removed during analysis (gray area)
-]
-
---
-
-- Compare volatility of lane positioning between .red[**texting (MD)**] and .blue[**normal (ND)** ]drivers
-
---
-
-- Quantify eye gaze (Y direction) and population cohort (age, personality) effects
-
---
-
-- Bayesian MCMC *time-series* modelling with `Stan`
-
----
-
-# *Preliminary* Analysis
-
-- No trend, no seasonality, *non-constant variance* with .red[**texting driving**]
-
-
----
-# A single example
-
-```{r cleaner, echo=FALSE}
-df_cleaner <- df %>% 
-    dplyr::filter(!Subject %in% c("T028", "T032", "T033", "T088")) %>%  # Missing stimulus variable
-    dplyr::filter(!(Subject=="T002")) %>% # Missing eye gaze
-    dplyr::filter(!(Subject=="T003" & Drive=="MD")) %>% 
-    dplyr::filter(!(Subject=="T007")) %>% 
-    dplyr::filter(!(Subject=="T008" & Drive=="MD")) %>% 
-    dplyr::filter(!(Subject=="T015")) %>% 
-    dplyr::filter(!(Subject=="T017")) %>% 
-    dplyr::filter(!(Subject=="T023")) %>% 
-    dplyr::filter(!(Subject=="T027")) %>% 
-    dplyr::filter(!(Subject=="T028" & Drive=="MD")) %>% 
-    dplyr::filter(!(Subject=="T029")) %>% 
-    dplyr::filter(!(Subject=="T032")) %>% 
-    dplyr::filter(!(Subject=="T036")) %>% 
-    dplyr::filter(!(Subject=="T038")) %>% 
-    dplyr::filter(!(Subject=="T042")) %>% 
-    dplyr::filter(!(Subject=="T047")) %>% 
-    dplyr::filter(!(Subject=="T055" & Drive=="ND")) %>% 
-    dplyr::filter(!(Subject=="T086" & Drive=="ND")) %>%
-    dplyr::filter(!dplyr::between(Distance, 5000, 7000)) %>% # Remove lane change
-    dplyr::mutate(half=ifelse(Distance < 5000, 1, 2))
-    
-df_1 <- df_cleaner %>% 
-    dplyr::filter(half==1) %>%
-    dplyr::group_by(Subject, Drive) %>%
-    dplyr::mutate(ntile=ntile(Distance, 200)) %>% # Bins for resampling
-    dplyr::select(-half, -Lft.Pupil.Diameter, -Rt.Pupil.Diameter, -LaneOffset, -Time) %>% 
-    dplyr::arrange(Subject, Drive, Distance) %>%
-    dplyr::group_by(Subject, Drive, ntile) %>%
-    dplyr::mutate(mrank=dplyr::row_number()) %>%
-    dplyr::filter(mrank==1) %>%
-    dplyr::ungroup() %>%
-    dplyr::select(-ntile, -mrank) %>% 
-    dplyr::ungroup()
+    annotate("text", x=5750, y=-4, 
+             label="Removed\nLane Change", angle=90, color="Red", 
+             size=4, hjust=0)
 ```
 
 ---
 
-# Priors and likelihood
+# Summary (*Assignment 5*)
 
-$$\alpha_0 \sim N(1.825, 0.5) \textrm{ (Lane position intercept)}$$
+1. Binned data into equal sample sizes across all drivers (200 first half, 190 2nd half)
 
+2. Fit AR(1) model on normal driving (T021)
 
+3. Fit AR(1) model on texting driving (T021)
 
----
-class: inverse, center, middle
+4. Working on ARCH(1) with effects for texting 
 
-# Backup slides
-
----
-
-# Data cleaning 
-
-.small[Inconsistent start and end observations filtered]
-
-.small[Drives without eye gaze data filtered]
-    
-.small[Drives without stimulus indicators for applied stressors filtered]
-    
-.small[Resampled data by distance into ~approximately 200 bins for each "half"]
-    
-.small[Data modelled separately by before and after lane change]
+*Next*: All drivers
 
 ---
-# Head and tail observation issue
-
-```{r, echo=FALSE, warning=FALSE, fig.align="center", fig.height=3.5}
-start_plot <- ggplot(df_select, aes(Distance)) + 
-    geom_histogram(binwidth=25, color="white") + 
-    coord_cartesian(xlim=c(0, 1000)) +
-    geom_vline(xintercept = 250, colour="red") +
-    theme_bw() + 
-    theme(legend.position = "none") + 
-    ggtitle("Histogram of observations at start") 
-    
-end_plot <- ggplot(df_select, aes(Distance)) + 
-    geom_histogram(binwidth=25, color="white") + 
-    coord_cartesian(xlim=c(10500, 11500)) +
-    geom_vline(xintercept = 11000, colour="red") +
-    theme_bw() + 
-    theme(legend.position = "none") + 
-    ggtitle("Histogram of observations at end") 
-grid.arrange(start_plot, end_plot, ncol=2)
-```
