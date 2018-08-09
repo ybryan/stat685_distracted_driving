@@ -10,7 +10,8 @@ parameters {
 }
 model {
   alpha ~ normal(0, 1);
-  rho ~ normal(0, 0.5);
+  rho ~ uniform(0, 1);
+  sigma ~ normal(0, 1);
 
   for (n in 2:N)
     y[n] ~ normal(alpha + rho * y[n - 1], sigma);

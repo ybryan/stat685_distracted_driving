@@ -1,0 +1,37 @@
+---
+title: "Stochastic Volatility Model"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(cahce = TRUE)
+
+library(here)
+library(rstan)
+rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores())
+
+c_light <- c("#DCBCBC")
+c_light_highlight <- c("#C79999")
+c_mid <- c("#B97C7C")
+c_mid_highlight <- c("#A25050")
+c_dark <- c("#8F2727")
+c_dark_highlight <- c("#7C0000")
+```
+
+```{r generate_ensemble, results="hide"}
+T <- 200;
+R <- 1000;
+simu_data <- list("T" = T)
+fit <- stan(here("src", "stan", "gen_sv.stan"), 
+            data=simu_data, iter=R, warmup=0, chains=1, refresh=R, seed=234987,
+            algorithm="Fixed_param")
+simu_mus <- extract(fit)$mu
+simu_phis<- extract(fit)$phi
+simu_sigmas <- extract(fit)$sigma
+simu_hs <- extract(fit)$h
+simu_ys <- extract(fit)$y
+```
+
+
