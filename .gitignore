@@ -11,6 +11,10 @@
 *_files/
 *_cache/
 
+*-files/
+*-figure/
+*-cache/
+
 structured_study_data
 study_df
 libs/
