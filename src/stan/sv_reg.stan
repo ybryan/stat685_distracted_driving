@@ -6,20 +6,15 @@ parameters {
   real mu;                     // mean log volatility
   real<lower=-1,upper=1> phi;  // persistence of volatility
   real<lower=0> sigma;         // white noise shock scale
-  vector[N] h_std;             // std log volatility at time
-}
-transformed parameters {
-  vector[N] h = h_std * sigma; // now h ~ normal(0, sigma)
-  h[1] /= sqrt(1 - phi * phi); // rescale h[1]
-  h += mu;
-  for (n in 2:N)
-    h[n] += phi * (h[n - 1] - mu);
+  vector[N] h;                 // log volatility at time
 }
 model {
-  mu ~ normal(0, 1);
   phi ~ uniform(-1, 1);
   sigma ~ normal(0, 1);
-  h_std ~ normal(0, 1);
+  mu ~ normal(0, 1);
+  h[1] ~ normal(mu, sigma / sqrt(1 - phi * phi));
+  for (t in 2:T)
+    h[t] ~ normal(mu + phi * (h[t - 1] -  mu), sigma);
   y ~ normal(0, exp(h / 2));
 }
 
