@@ -1,0 +1,230 @@
+---
+title: "Stochastic Volatility Model"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(cahce = TRUE)
+
+library(here)
+library(rstan)
+library(foreach)
+library(doParallel)
+library(dplyr)
+
+util <- new.env()
+source(here('src', 'codebase', 'stan_utility.R'), local=util)
+rstan_options(auto_write = TRUE)
+
+load(here('md_lane.RData'))
+input_data <- list(
+    "y" = md_half$Lane.Position - mean(md_half$Lane.Position)
+    , "texting" = as.integer(md_half$Stimulus)
+    , "N" = length(md_half$Lane.Position)
+    , "N_texting" = length(unique(as.integer(md_half$Stimulus)))
+)
+
+c_light <- c("#DCBCBC")
+c_light_highlight <- c("#C79999")
+c_mid <- c("#B97C7C")
+c_mid_highlight <- c("#A25050")
+c_dark <- c("#8F2727")
+c_dark_highlight <- c("#7C0000")
+```
+
+# 1. Conceptual Analysis
+AR process is intended to have exponential decay but there exists some ringing of behavior in the later lags, a more flexible model architecture is needed to account for this behavior. The stochastic volatility model has more parameters to fit the lags that exhibit the longer frequency trend. There are two states of volatility of interest: mean volatility during normal driving and texting driving.
+
+# 2. Define observations
+```{r obs}
+writeLines(readLines(here("src", "stan", "sv2.stan"), n=6))
+```
+
+# 3. Summary statistics
+Correlogram 
+
+# 4. Build generative model
+```{r generative_model}
+writeLines(readLines(here("src", "stan", "gen_sv2.stan")))
+writeLines(readLines(here("src", "stan", "sv2.stan")))
+```
+
+# 5. Analyze generative ensemble
+```{r generate_ensemble, results="hide"}
+R <- 100;
+N <- input_data$N
+simu_data <- list("N" = input_data$N)
+fit <- stan(here("src", "stan", "gen_sv2.stan"), 
+            data=simu_data, iter=R, warmup=0, chains=1, refresh=R, seed=234987,
+            algorithm="Fixed_param")
+simu_mus <- extract(fit)$mu
+simu_phis <- extract(fit)$phi
+simu_sigmas <- extract(fit)$sigma
+simu_ys <- extract(fit)$h
+```
+
+```{r prior_predictive_corr}
+B <- 23
+counts <- sapply(1:R, function(r) acf(simu_ys[r,], plot=FALSE)$acf)
+probs <- c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
+cred <- sapply(1:B, function(b) quantile(counts[b, ], probs=probs))
+
+idx <- rep(1:B, each=2)
+x <- sapply(1:length(idx), function(b) if(b %% 2 == 0) idx[b] + 0.5 else idx[b] - 0.5) - 1
+pad_cred <- do.call(cbind, lapply(idx, function(n) cred[1:9, n]))
+
+plot(1, type="n", main="Prior Predictive Correlogram", 
+     xlim=c(0.5, B + 0.5), xlab="y", ylim=c(min(cred[1,]), max(cred[9,])), ylab="")
+polygon(c(x, rev(x)), c(pad_cred[1,], rev(pad_cred[9,])), col = c_light, border = NA)
+polygon(c(x, rev(x)), c(pad_cred[2,], rev(pad_cred[8,])), col = c_light_highlight, border = NA)
+polygon(c(x, rev(x)), c(pad_cred[3,], rev(pad_cred[7,])), col = c_mid, border = NA)
+polygon(c(x, rev(x)), c(pad_cred[4,], rev(pad_cred[6,])), col = c_mid_highlight, border = NA)
+lines(x, pad_cred[5,], col=c_dark, lwd=2)
+rm(B, counts, cred, idx, x, pad_cred, probs)
+```
+
+**Fit the simulated observations and evaluate
+```{r fit_sim_obs}
+tryCatch({
+  registerDoParallel(makeCluster(detectCores()))
+
+  simu_list <- t(data.matrix(data.frame(simu_mus, simu_phis, simu_sigmas, simu_ys)))
+
+  # Compile the posterior fit model
+  fit_model = stan_model(here('src', 'stan', 'sv2.stan'))
+
+  ensemble_output <- foreach(simu=simu_list,
+                             .combine='cbind') %dopar% {
+    simu_mu <- simu[1]
+    simu_phi <- simu[2]
+    simu_sigma <- simu[3]
+    simu_y <- simu[4:(N + 3)]
+    
+    # Fit the simulated observation
+    sim_data <- list("N" = N, "y" = simu_y)
+    capture.output(library(rstan))
+    capture.output(fit <- sampling(fit_model, data=sim_data, seed=4938483, control = list(adapt_delta = 0.99)))
+
+    # Compute diagnostics
+    util <- new.env()
+    source(here::here('src', 'codebase', 'stan_utility.R'), local=util)
+
+    warning_code <- util$check_all_diagnostics(fit, quiet=TRUE)
+
+    # Compute rank of prior draw with respect to thinned posterior draws
+    sbc_rank_mu <- sum(simu_mu < extract(fit)$mu[seq(1, 4000 - 8, 8)])
+    sbc_rank_phi <- sum(simu_phi < extract(fit)$phi[seq(1, 4000 - 8, 8)])
+    sbc_rank_sigma <- sum(simu_sigma < extract(fit)$sigma[seq(1, 4000 - 8, 8)])
+
+    # Compute posterior sensitivities
+    s <- summary(fit, probs = c(), pars='mu')$summary
+    post_mean_mu <- s[,1]
+    post_sd_mu <- s[,3]
+    prior_sd_mu <- 1
+    z_score_mu <- abs((post_mean_mu - simu_mu) / post_sd_mu)
+    shrinkage_mu<- 1 - (post_sd_mu / prior_sd_mu)**2
+
+    s <- summary(fit, probs = c(), pars='phi')$summary
+    post_mean_phi <- s[,1]
+    post_sd_phi <- s[,3]
+    prior_sd_phi <- sqrt(1/12 * (1 - -1)^2)
+    z_score_phi <- abs((post_mean_phi - simu_phi) / post_sd_phi)
+    shrinkage_phi <- 1 - (post_sd_phi / prior_sd_phi)**2
+
+    s <- summary(fit, probs = c(), pars='sigma')$summary
+    post_mean_sigma <- s[,1]
+    post_sd_sigma <- s[,3]
+    prior_sd_sigma <- 1 * (1 - 2 / pi)
+    z_score_sigma <- abs((post_mean_phi - simu_phi) / post_sd_phi)
+    shrinkage_sigma <- 1 - (post_sd_phi / prior_sd_phi)**2
+    
+    c(warning_code,
+      sbc_rank_mu, z_score_mu, shrinkage_mu,
+      sbc_rank_phi, z_score_phi, shrinkage_phi,
+      sbc_rank_sigma, z_score_sigma, shrinkage_sigma)
+  }
+}, finally={ stopImplicitCluster() })
+```
+```{r warning_codes}
+warning_code <- ensemble_output[1,]
+if (sum(warning_code) != 0) {
+  print ("Some simulated posterior fits in the generative ensemble encountered problems!")
+  for (r in 1:R) {
+    if (warning_code[r] != 0) {
+      print(sprintf('Replication %s of %s', r, R))
+      util$parse_warning_code(warning_code[r])
+      print(sprintf('Simulated mu = %s', simu_mus[r]))
+      print(sprintf('Simulated phi = %s', simu_phis[r]))
+      print(sprintf('Simulated sigma = %s', simu_sigmas[r]))
+      print(" ")
+    }
+  }
+} else {
+  print ("No posterior fits in the generative ensemble encountered problems!")
+}
+```
+```{r sbc}
+par(mfrow=c(1, 3))
+sbc_rank <- ensemble_output[2,]
+sbc_hist <- hist(sbc_rank, seq(0, 500, 25) - 0.5, plot=FALSE)
+plot(sbc_hist, main="", xlab="Prior Rank (mu)", yaxt='n', ylab="")
+low <- qbinom(0.005, R, 1 / 20)
+mid <- qbinom(0.5, R, 1 / 20)
+high <- qbinom(0.995, R, 1 / 20)
+bar_x <- c(-10, 510, 500, 510, -10, 0, -10)
+bar_y <- c(high, high, mid, low, low, mid, high)
+polygon(bar_x, bar_y, col=c("#DDDDDD"), border=NA)
+segments(x0=0, x1=500, y0=mid, y1=mid, col=c("#999999"), lwd=2)
+plot(sbc_hist, col=c_dark, border=c_dark_highlight, add=T)
+
+sbc_rank <- ensemble_output[5,]
+sbc_hist <- hist(sbc_rank, seq(0, 500, 25) - 0.5, plot=FALSE)
+plot(sbc_hist, main="", xlab="Prior Rank (phi)", yaxt='n', ylab="")
+low <- qbinom(0.005, R, 1 / 20)
+mid <- qbinom(0.5, R, 1 / 20)
+high <- qbinom(0.995, R, 1 / 20)
+bar_x <- c(-10, 510, 500, 510, -10, 0, -10)
+bar_y <- c(high, high, mid, low, low, mid, high)
+polygon(bar_x, bar_y, col=c("#DDDDDD"), border=NA)
+segments(x0=0, x1=500, y0=mid, y1=mid, col=c("#999999"), lwd=2)
+plot(sbc_hist, col=c_dark, border=c_dark_highlight, add=T)
+
+sbc_rank <- ensemble_output[8,]
+sbc_hist <- hist(sbc_rank, seq(0, 500, 25) - 0.5, plot=FALSE)
+plot(sbc_hist, main="", xlab="Prior Rank (sigma)", yaxt='n', ylab="")
+low <- qbinom(0.005, R, 1 / 20)
+mid <- qbinom(0.5, R, 1 / 20)
+high <- qbinom(0.995, R, 1 / 20)
+bar_x <- c(-10, 510, 500, 510, -10, 0, -10)
+bar_y <- c(high, high, mid, low, low, mid, high)
+polygon(bar_x, bar_y, col=c("#DDDDDD"), border=NA)
+segments(x0=0, x1=500, y0=mid, y1=mid, col=c("#999999"), lwd=2)
+plot(sbc_hist, col=c_dark, border=c_dark_highlight, add=T)
+```
+
+```{r zscore_shrinkage}
+# mu
+z_score <- ensemble_output[3,]
+shrinkage <- ensemble_output[4,]
+plot(shrinkage, z_score, col=c("#8F272720"), lwd=2, pch=16, cex=0.8, main="Mu",
+     xlim=c(0, 1), xlab="Posterior Shrinkage", ylim=c(0, 5), ylab="Posterior z-Score")
+# phi
+z_score <- ensemble_output[6,]
+shrinkage <- ensemble_output[7,]
+plot(shrinkage, z_score, col=c("#8F272720"), lwd=2, pch=16, cex=0.8, main="Phi",
+     xlim=c(0, 1), xlab="Posterior Shrinkage", ylim=c(0, 5), ylab="Posterior z-Score")
+# sigma
+z_score <- ensemble_output[9,]
+shrinkage <- ensemble_output[10,]
+plot(shrinkage, z_score, col=c("#8F272720"), lwd=2, pch=16, cex=0.8, main="Sigma",
+     xlim=c(0, 1), xlab="Posterior Shrinkage", ylim=c(0, 5), ylab="Posterior z-Score")
+```
+
+# 6. Fit observations and evaluate
+```{r actual_fit}
+fit <- stan(file=here('src', 'stan', 'sv2.stan'), data=input_data, seed=4938483, refresh=2000)
+pairs(fit, pars=c("mu", "sigma", "phi"))
+```
+
+# 7. Analyze posterior predictive distribution
