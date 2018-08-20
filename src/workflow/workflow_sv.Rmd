@@ -19,10 +19,10 @@ rstan_options(auto_write = TRUE)
 
 load(here('md_lane.RData'))
 input_data <- list(
-    "y" = md_half$Lane.Position - mean(md_half$Lane.Position)
-    , "x" = as.integer(md_half$Stimulus)
-    , "N" = length(md_half$Lane.Position)
-    , "N_texting" = length(unique(as.integer(md_half$Stimulus)))
+  "y" = md_half$Lane.Position - mean(md_half$Lane.Position)
+  , "x" = as.integer(md_half$Stimulus)
+  , "N" = length(md_half$Lane.Position)
+  , "N_texting" = length(unique(as.integer(md_half$Stimulus)))
 )
 
 c_light <- c("#DCBCBC")
@@ -52,7 +52,7 @@ writeLines(readLines(here("src", "stan", "sv.stan")))
 
 # 5. Analyze generative ensemble
 ```{r generate_ensemble, results="hide"}
-R <- 1000;
+R <- 500;
 N <- input_data$N
 simu_data <- list("N" = input_data$N)
 fit <- stan(here("src", "stan", "gen_sv.stan"), 
@@ -136,8 +136,8 @@ tryCatch({
     post_mean_sigma <- s[,1]
     post_sd_sigma <- s[,3]
     prior_sd_sigma <- 1 * (1 - 2 / pi)
-    z_score_sigma <- abs((post_mean_phi - simu_phi) / post_sd_phi)
-    shrinkage_sigma <- 1 - (post_sd_phi / prior_sd_phi)**2
+    z_score_sigma <- abs((post_mean_sigma - simu_sigma) / post_sd_sigma)
+    shrinkage_sigma <- 1 - (post_sd_sigma/ prior_sd_sigma)**2
     
     c(warning_code,
       sbc_rank_mu, z_score_mu, shrinkage_mu,
@@ -146,8 +146,10 @@ tryCatch({
   }
 }, finally={ stopImplicitCluster() })
 ```
+
 ```{r warning_codes}
 warning_code <- ensemble_output[1,]
+warning_ind <- which(warning_code != 0)
 if (sum(warning_code) != 0) {
   print ("Some simulated posterior fits in the generative ensemble encountered problems!")
   for (r in 1:R) {
@@ -160,10 +162,36 @@ if (sum(warning_code) != 0) {
       print(" ")
     }
   }
+  c_dark <- c("#8F272780")
+  green <- c("#00FF0080")
+  par(mfrow = c(1, 3))
+  par(mar = c(4, 4, 0.5, 0.5))
+  # mus and phis
+  plot(simu_mus, simu_phis, col=c_dark, 
+       pch=16, cex=0.8, 
+       xlab="mu", ylab="phi")
+  points(simu_mus[warning_ind], simu_phis[warning_ind], 
+         col=green, pch=16, cex=0.8)
+  
+  # mus and sigmas
+  plot(simu_mus, simu_sigmas, col=c_dark, 
+       pch=16, cex=0.8, 
+       xlab="mu", ylab="sigma")
+  points(simu_mus[warning_ind], simu_sigmas[warning_ind], 
+         col=green, pch=16, cex=0.8)
+  
+  # phis and sigmas
+  plot(simu_phis, simu_sigmas, col=c_dark, 
+       pch=16, cex=0.8, 
+       xlab="phi", ylab="sigma")
+  points(simu_phis[warning_ind], simu_sigmas[warning_ind], 
+         col=green, pch=16, cex=0.8)
+   
 } else {
   print ("No posterior fits in the generative ensemble encountered problems!")
 }
 ```
+
 ```{r sbc}
 par(mfrow=c(1, 3))
 sbc_rank <- ensemble_output[2,]
@@ -204,6 +232,7 @@ plot(sbc_hist, col=c_dark, border=c_dark_highlight, add=T)
 ```
 
 ```{r zscore_shrinkage}
+par(mfrow=c(1, 3))
 # mu
 z_score <- ensemble_output[3,]
 shrinkage <- ensemble_output[4,]
@@ -223,7 +252,11 @@ plot(shrinkage, z_score, col=c("#8F272720"), lwd=2, pch=16, cex=0.8, main="Sigma
 
 # 6. Fit observations and evaluate
 ```{r actual_fit}
-fit <- stan(file=here('src', 'stan', 'sv2.stan'), data=input_data, seed=4938483, refresh=2000)
+fit <- stan(file=here('src', 'stan', 'sv.stan'), data=input_data, seed=4938483, iter=11000, refresh=2000)
+```
+```{r}
+pairs(fit, pars=c("mu", "phi", "sigma"))
 ```
 
 # 7. Analyze posterior predictive distribution
+
