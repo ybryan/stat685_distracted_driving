@@ -2,6 +2,7 @@
 *.rds
 *.html
 *$*.xls*
+*$*.pptx*
 *.RData
 
 .RData

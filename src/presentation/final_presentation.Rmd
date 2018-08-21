@@ -1,0 +1,255 @@
+---
+title: "STAT 685: Distracted Driving"
+subtitle: "Committee: Dr. Derya Akleman, Dr. Samiran Sinha, Dr. Ergun Akleman"
+author: "Bryan Yu | bryanyu@tamu.edu"
+date: "Summer / Fall 2018"
+output: 
+    powerpoint_presentation:
+      reference_doc: template.potx
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(cache = TRUE)
+library(dplyr)
+library(here)
+library(ggplot2)
+library(feather)
+```
+
+## Experiment
+:::::::::::::: {.columns}
+::: {.column}
+- Controlled simulated driving experiment^[1](https://www.nature.com/articles/sdata2017110)^ to asses driving behavior
+
+- Multiple different stressors: cognitive, emotional, sensorimotor (texting)
+
+- Sensors captured vehicle information and driver outputs
+
+- Subject variables: age, gender, personality
+
+- Drive variables: Speed, brake, lane position
+
+- Biological variables: eye gaze, heart rate, breathing rate, etc
+:::
+::: {.column}
+![](https://media.nature.com/lw926/nature-assets/sdata/2017/sdata2017110/images_hires/sdata2017110-f1.jpg)
+:::
+::::::::::::::
+
+## Objective
+
+- Model variance of lane positioning to undertand texting effect
+
+- Bayesian modelling
+
+    - Time series analysis
+    - [Stan](http://mc-stan.org/) MCMC Programming: Sampling with Hamiltonian Monte Carlo
+    - ["Modern Statistical Workflow"](https://modernstatisticalworkflow.blogspot.com/2016/08/what-is-modern-statistical-workflow.html)^2^: Capture simulated data before fitting observations
+    
+- Explore population level effects on variance
+ 
+## Preliminary Analysis: All drivers
+
+:::::::::::::: {.columns}
+::: {.column}
+- Each color is a separate driver (N=68)
+
+- Data resampled at 390 data points and missing data filtered
+
+    - Prior to lane change: 200
+    - After lane change: 190
+
+- Focused on first half (prior to lane change)
+
+- Some drivers exhibit extremely long tails in their lane positioning
+
+- Univariate (T021) data is stationary according to Dickey-Fuller test
+
+    - Accounting for texting vs normal driving state
+:::
+::: {.column}
+```{r prelim_plot_all}
+df_select <- feather::read_feather(here::here("study_df", "df_select.feather"))
+subject_df <- feather::read_feather(here::here("study_df", "subject_df.feather"))
+df <- df_select %>% 
+    dplyr::filter(Distance >= 250) %>%         # Remove driver starts
+    dplyr::filter(Distance <= 11000) %>%       # Remove driver ends
+    dplyr::inner_join(subject_df, by=c("Subject"="subject"))
+
+nd_raw <- df %>%  dplyr::filter(Drive == "ND") 
+md_raw <- df %>%  dplyr::filter(Drive == "MD") 
+rm(subject_df)
+
+df_cleaner <- df %>% 
+    dplyr::filter(!Subject %in% c(
+        "T028", "T032", "T033", "T088")) %>%  # Missing stimulus variable
+    dplyr::filter(!(Subject=="T002")) %>% # Missing eye gaze
+    dplyr::filter(!(Subject=="T003" & Drive=="MD")) %>% 
+    dplyr::filter(!(Subject=="T007")) %>% 
+    dplyr::filter(!(Subject=="T008" & Drive=="MD")) %>% 
+    dplyr::filter(!(Subject=="T015")) %>% 
+    dplyr::filter(!(Subject=="T017")) %>% 
+    dplyr::filter(!(Subject=="T023")) %>% 
+    dplyr::filter(!(Subject=="T027")) %>% 
+    dplyr::filter(!(Subject=="T028" & Drive=="MD")) %>% 
+    dplyr::filter(!(Subject=="T029")) %>% 
+    dplyr::filter(!(Subject=="T032")) %>% 
+    dplyr::filter(!(Subject=="T036")) %>% 
+    dplyr::filter(!(Subject=="T038")) %>% 
+    dplyr::filter(!(Subject=="T042")) %>% 
+    dplyr::filter(!(Subject=="T047")) %>% 
+    dplyr::filter(!(Subject=="T055" & Drive=="ND")) %>% 
+    dplyr::filter(!(Subject=="T086" & Drive=="ND")) %>%
+    dplyr::filter(
+        !dplyr::between(Distance, 5000, 7000)) %>% # Remove lane change
+    dplyr::mutate(half=ifelse(Distance < 5000, 1, 2)) %>%
+    dplyr::mutate(Stimulus=as.factor(Stimulus))
+
+rect <- data.frame(xmin=5000, xmax=6750, ymin=-Inf, ymax=Inf)
+ggplot(md_raw, aes(Distance, Lane.Position)) + 
+    geom_rect(data=rect, aes(xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax),
+              color="transparent", alpha=0.25, inherit.aes = FALSE) +
+    geom_line(aes(colour=Subject)) + 
+    theme_bw() + 
+    theme(legend.position = "none") + 
+    ggtitle("Texting driving") +
+    xlab("Distance (m)") + 
+    ylab("Lane Position(m)") +
+    coord_cartesian(ylim=c(-5.5, 7)) +
+    annotate("text", x=5750, y=-4, 
+             label="Removed\nLane Change", angle=90, color="Red", 
+             size=4, hjust=0)
+```
+:::
+::::::::::::::
+
+## Preliminary Analysis: T021 Driver
+:::::::::::::: {.columns}
+::: {.column}
+```{r prelim_plot_t021}
+rect_prior <- data.frame(xmin=0, xmax=5000, ymin=-Inf, ymax=Inf)
+rect_post <- data.frame(xmin=7000, xmax=11000, ymin=-Inf, ymax=Inf)
+
+subject <- "T021"
+df_1 <- df_cleaner %>%  dplyr::filter(half==1) %>%
+    dplyr::group_by(Subject, Drive) %>%
+    dplyr::mutate(ntile=ntile(Distance, 200)) %>% # Bins for resampling
+    dplyr::select(-half, -Time, -Lft.Pupil.Diameter, -Rt.Pupil.Diameter, 
+                  -LaneOffset) %>% 
+    dplyr::arrange(Subject, Drive, Distance) %>% 
+    dplyr::group_by(Subject, Drive, ntile) %>%
+    dplyr::mutate(mrank=dplyr::row_number()) %>% dplyr::filter(mrank==1) %>%
+    dplyr::select(-mrank) %>%  dplyr::ungroup()
+
+df_2 <- df_cleaner %>%  dplyr::filter(half==2) %>%
+    dplyr::group_by(Subject, Drive) %>%
+    dplyr::mutate(ntile=ntile(Distance, 190)) %>% # Bins for resampling
+    dplyr::select(-half, -Time, -Lft.Pupil.Diameter, -Rt.Pupil.Diameter, 
+                  -LaneOffset) %>% 
+    dplyr::arrange(Subject, Drive, Distance) %>% 
+    dplyr::group_by(Subject, Drive, ntile) %>%
+    dplyr::mutate(mrank=dplyr::row_number()) %>% dplyr::filter(mrank==1) %>%
+    dplyr::select(-mrank) %>%  dplyr::ungroup()
+md_single <- dplyr::bind_rows(df_1, df_2) %>% 
+    dplyr::filter(Subject==subject & Drive=="MD")
+md_lane <- ggplot(md_single, aes(Distance, Lane.Position)) +
+    geom_line() +
+    geom_rect(data=rect_prior, aes(xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax),
+              color="transparent", alpha=0.25, inherit.aes = FALSE, 
+              fill="palegreen1") +
+    geom_rect(data=rect_post, aes(xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax),
+              color="transparent", alpha=0.25, inherit.aes = FALSE, 
+              fill="lightsalmon1") +
+    geom_point(aes(colour=Stimulus), size=0.5) +
+    theme_bw() + 
+    theme(legend.position = "bottom") + 
+    ggtitle("Texting Driving") +
+    xlab("Distance (m)") + 
+    ylab("Lane Position(m)") +
+    coord_cartesian(ylim=c(1.5, 2.5)) +
+    annotate("text", x=1500, y=2.45, 
+             label="First half", color="Black",  size=4, hjust=0) +
+    annotate("text", x=8500, y=2.45, 
+             label="Second half", color="Black",  size=4, hjust=0) +
+    scale_color_hue(labels=c("None", "Texting"))
+md_lane
+```
+:::
+::: {.column}
+```{r acf_t021}
+load(here::here('md_lane.RData'))
+subject <- "T021"
+conf.level <- 0.95
+md_half <- df_1 %>% dplyr::filter(Subject==subject & Drive=="MD")
+acf_md <- acf(md_half$Lane.Position, plot=FALSE)
+acf_md_df <- with(acf_md, data.frame(lag, acf))
+ciline <- qnorm((1 - conf.level)/2)/sqrt(length(md_half$Lane.Position))
+md_acf <- ggplot(acf_md_df, aes(lag, acf)) +
+    geom_segment(aes(xend=lag, yend=0)) +
+    geom_hline(aes(yintercept=0)) + 
+    geom_hline(aes(yintercept= -ciline), linetype=2, color='darkblue') +
+    geom_hline(aes(yintercept= ciline), linetype=2, color='darkblue') +
+    theme_bw() + 
+    theme(legend.position = "none") + 
+    ggtitle("Texting Driving: First half") +
+    xlab("Lag") + 
+    ylab("ACF")
+md_acf
+```
+:::
+::::::::::::::
+
+## Modelling
+### Univariate model (T021 driver)
+
+- Autoregressive (AR) models
+
+- Stochastic Volatility (SV) models^3^
+
+
+### Multivariate model (all drivers)
+
+- Hierarchical model: Regularization
+
+## AR(1) Setup
+:::::::::::::: {.columns}
+::: {.column}
+### Conceptual Analysis
+Single driver staying in the middle of a lane (3.65m wide). Should expect that as the driver moves out of the middle of lane to correct by reducing lane position back to middle (~1.825m). Would expect that mean and variance is constant in each state of driving (normal vs texting)
+
+### Define observations
+
+$$N: \textrm{Number of observations}$$
+$$y_n: \textrm{Lane Position (meters)}$$
+$$x_n: \textrm{Texting indicator}$$
+:::
+::: {.column}
+### Summary Statistic
+Correlogram of $y_t$
+
+### Likelihood and priors
+$$y_n \sim \mathcal{N}(\alpha + \rho_{n-1}, \sigma_{texting})$$
+
+$$\rho \sim \textrm{Beta}(1.5, 1.5)$$
+$$\sigma_{texting} \sim \mathcal{H}(0, 1)$$
+$$\alpha \sim \mathcal{N}(1.825, 0.25)$$
+:::
+::::::::::::::
+
+
+# Backup slides
+
+## References
+
+1. Taamneh, S. et al. A multimodal dataset for various forms of distracted driving. Sci. Data 4:170110 doi: 10.1038/sdata.2017.110 (2017).
+
+2. Betancourt, Michael. 2018. "A Principled Bayesian Workflow" June 2018
+
+3. Kim, Shephard, Chib (1998) "Stochastic Volatility: Likelihood Inference and Comparison with ARCH Models" *The Review of Economic Studies Vol. 65, No. 3*
+
+## Future steps
+
+- Incorporate bayesian methods for dealing with missing data
+
+- Incorporate "change-point" model to account of lane changes
