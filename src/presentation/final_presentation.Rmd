@@ -39,7 +39,7 @@ library(feather)
 
 ## Objective
 
-- Model variance of lane positioning to undertand texting effect
+- Model variance of lane positioning to understand texting effect
 
 - Bayesian modelling
 
