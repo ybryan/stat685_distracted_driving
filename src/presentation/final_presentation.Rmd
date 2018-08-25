@@ -2,7 +2,7 @@
 title: "STAT 685: Distracted Driving"
 subtitle: "Committee: Dr. Derya Akleman, Dr. Samiran Sinha, Dr. Ergun Akleman"
 author: "Bryan Yu | bryanyu@tamu.edu"
-date: "Summer / Fall 2018"
+date: "Summer 2018"
 output: 
     powerpoint_presentation:
       reference_doc: template.potx
@@ -15,6 +15,9 @@ library(dplyr)
 library(here)
 library(ggplot2)
 library(feather)
+library(aws.s3)
+
+aws.signature::use_credentials(profile = "ybryan")
 ```
 
 ## Experiment
@@ -203,12 +206,14 @@ md_acf
 ## Modelling
 ### Univariate model (T021 driver)
 
-- Autoregressive (AR) models
+- Autoregressive (AR) model
 
 - Stochastic Volatility (SV) models^3^
 
 
 ### Multivariate model (all drivers)
+
+- Independent drivers model
 
 - Hierarchical model: Regularization
 
@@ -220,23 +225,50 @@ Single driver staying in the middle of a lane (3.65m wide). Should expect that a
 
 ### Define observations
 
-$$N: \textrm{Number of observations}$$
-$$y_n: \textrm{Lane Position (meters)}$$
-$$x_n: \textrm{Texting indicator}$$
+$$T: \textrm{Number of observations}$$
+$$N_{texting}: \textrm{Number of texting states } (j)$$
+$$y_t: \textrm{Lane Position (meters)}$$
+$$x_t: \textrm{Texting indicator (1: ND, 2: MD)}$$
 :::
 ::: {.column}
 ### Summary Statistic
 Correlogram of $y_t$
 
 ### Likelihood and priors
-$$y_n \sim \mathcal{N}(\alpha + \rho_{n-1}, \sigma_{texting})$$
+$$y_t \sim \mathcal{N}(\alpha + \rho y_{t - 1}, \sigma_{j})$$
 
 $$\rho \sim \textrm{Beta}(1.5, 1.5)$$
-$$\sigma_{texting} \sim \mathcal{H}(0, 1)$$
-$$\alpha \sim \mathcal{N}(1.825, 0.25)$$
+$$\sigma_i \sim \mathcal{H}(0, 1)$$
+$$\alpha \sim \mathcal{N}(1.825, 0.1)$$
 :::
 ::::::::::::::
+## AR(1) Prior Predictive Analysis
 
+## Stochastic Volatility Setup
+:::::::::::::: {.columns}
+::: {.column}
+
+### Conceptual Analysis
+Mean of lane positioning is constant but with changing volatility. The SV model has additional parameters to deal with the structure of this data. Latent variables and generative nature of model allows for additional complexity.
+
+### Define observations
+$$T: \textrm{Number of observations}$$
+$$N_{texting}: \textrm{Number of texting states } (j)$$
+$$y_t: \textrm{Lane Position (meters), mean corrected}$$
+$$x_t: \textrm{Texting indicator (1: ND, 2: MD)}$$
+:::
+::: {.column}
+### Likelihood and priors
+$$y_t \sim \mathcal{N}(0, \textrm{exp}(h_t / 2))$$
+$$h_t \sim \mathcal{N}(\mu + \delta + \phi(h_t - \mu), \sigma)$$
+$$h_1 \sim \mathcal{N}(\mu, \frac{\sigma}{\sqrt{1 - \phi^2}})$$
+\newline
+$$\mu \sim \mathcal{N}(0, 1): \textrm{Mean log volatility}$$
+$$\phi \sim \textrm{Uniform}(-1, 1): \textrm{Persistence of volatility}$$
+$$\sigma \sim \mathcal{N}(0, 1)$$
+$$\delta \sim \mathcal{N}(0, 0.05): \textrm{Texting effect}$$
+:::
+::::::::::::::
 
 # Backup slides
 
@@ -247,6 +279,21 @@ $$\alpha \sim \mathcal{N}(1.825, 0.25)$$
 2. Betancourt, Michael. 2018. "A Principled Bayesian Workflow" June 2018
 
 3. Kim, Shephard, Chib (1998) "Stochastic Volatility: Likelihood Inference and Comparison with ARCH Models" *The Review of Economic Studies Vol. 65, No. 3*
+
+4. Stan Development Team. "Stan Modeling Language User’s Guide and Reference Manual" Version 2.17.0, Sept 2017
+
+## Computing Cluster Setup (AWS)
+
+### Prior Predictive Modelling
+
+- Each prior predictive model ran 1000 simulations from the generative model
+
+- Fitting 1000 simulations is a time consuming process on local machine
+
+  - `Stan` runs 4 markov chains in parallel and aggregates (4 cores)
+  - 1000 * 4 = 4000 CPU's to run fit observations for one model!
+  
+- Created a docker container with `RStan` and submitted jobs to AWS Batch service
 
 ## Future steps
 
