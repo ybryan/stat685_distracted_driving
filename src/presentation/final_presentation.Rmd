@@ -15,9 +15,6 @@ library(dplyr)
 library(here)
 library(ggplot2)
 library(feather)
-library(aws.s3)
-
-aws.signature::use_credentials(profile = "ybryan")
 ```
 
 ## Experiment
@@ -79,31 +76,12 @@ df <- df_select %>%
     dplyr::filter(Distance >= 250) %>%         # Remove driver starts
     dplyr::filter(Distance <= 11000) %>%       # Remove driver ends
     dplyr::inner_join(subject_df, by=c("Subject"="subject"))
-
 nd_raw <- df %>%  dplyr::filter(Drive == "ND") 
 md_raw <- df %>%  dplyr::filter(Drive == "MD") 
 rm(subject_df)
 
 df_cleaner <- df %>% 
-    dplyr::filter(!Subject %in% c(
-        "T028", "T032", "T033", "T088")) %>%  # Missing stimulus variable
-    dplyr::filter(!(Subject=="T002")) %>% # Missing eye gaze
-    dplyr::filter(!(Subject=="T003" & Drive=="MD")) %>% 
-    dplyr::filter(!(Subject=="T007")) %>% 
-    dplyr::filter(!(Subject=="T008" & Drive=="MD")) %>% 
-    dplyr::filter(!(Subject=="T015")) %>% 
-    dplyr::filter(!(Subject=="T017")) %>% 
-    dplyr::filter(!(Subject=="T023")) %>% 
-    dplyr::filter(!(Subject=="T027")) %>% 
-    dplyr::filter(!(Subject=="T028" & Drive=="MD")) %>% 
-    dplyr::filter(!(Subject=="T029")) %>% 
-    dplyr::filter(!(Subject=="T032")) %>% 
-    dplyr::filter(!(Subject=="T036")) %>% 
-    dplyr::filter(!(Subject=="T038")) %>% 
-    dplyr::filter(!(Subject=="T042")) %>% 
-    dplyr::filter(!(Subject=="T047")) %>% 
-    dplyr::filter(!(Subject=="T055" & Drive=="ND")) %>% 
-    dplyr::filter(!(Subject=="T086" & Drive=="ND")) %>%
+    dplyr::filter(!Subject %in% c("T028", "T032", "T088")) %>%
     dplyr::filter(
         !dplyr::between(Distance, 5000, 7000)) %>% # Remove lane change
     dplyr::mutate(half=ifelse(Distance < 5000, 1, 2)) %>%
@@ -265,10 +243,13 @@ $$h_1 \sim \mathcal{N}(\mu, \frac{\sigma}{\sqrt{1 - \phi^2}})$$
 \newline
 $$\mu \sim \mathcal{N}(0, 1): \textrm{Mean log volatility}$$
 $$\phi \sim \textrm{Uniform}(-1, 1): \textrm{Persistence of volatility}$$
-$$\sigma \sim \mathcal{N}(0, 1)$$
+$$\sigma \sim \mathcal{N}(0, 1): \textrm{White noise shock}$$
 $$\delta \sim \mathcal{N}(0, 0.05): \textrm{Texting effect}$$
 :::
 ::::::::::::::
+## Conclusions
+
+Texting effect 
 
 # Backup slides
 
