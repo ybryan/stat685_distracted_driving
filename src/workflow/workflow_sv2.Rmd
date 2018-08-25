@@ -19,19 +19,24 @@ source(here('src', 'codebase', 'stan_utility.R'), local=util)
 rstan_options(auto_write = TRUE)
 
 load(here('md_lane.RData'))
-input_data <- list(
-    "y" = md_half$Lane.Position - mean(md_half$Lane.Position)
-    , "texting" = as.integer(md_half$Stimulus)
-    , "N" = length(md_half$Lane.Position)
-    , "N_texting" = length(unique(as.integer(md_half$Stimulus)))
-)
+input_data <- list("y" = md_half$Lane.Position - mean(md_half$Lane.Position),
+                   "texting" = as.integer(md_half$Stimulus),
+                   "T" = length(md_half$Lane.Position),
+                   "N_texting" = length(unique(as.integer(md_half$Stimulus))))
 
+# colors
 c_light <- c("#DCBCBC")
 c_light_highlight <- c("#C79999")
 c_mid <- c("#B97C7C")
 c_mid_highlight <- c("#A25050")
 c_dark <- c("#8F2727")
 c_dark_highlight <- c("#7C0000")
+d_light <- c("#BCBCDC")
+d_light_highlight <- c("#9999C7")
+d_mid <- c("#7C7CB9")
+d_mid_highlight <- c("#5050A2")
+d_dark <- c("#27278F")
+d_dark_highlight <- c("#00007c")
 ```
 
 ```{r data_plot}
@@ -70,8 +75,7 @@ writeLines(readLines(here("src", "stan", "sv2.stan")))
 # 5. Analyze generative ensemble
 ```{r generate_ensemble, results="hide"}
 R <- 100;
-N <- input_data$N
-simu_data <- list("N" = input_data$N,
+simu_data <- list("T" = input_data$T,
                   "texting" = input_data$texting,
                   "N_texting" = input_data$N_texting)
 fit <- stan(here("src", "stan", "gen_sv2.stan"), 
@@ -80,22 +84,44 @@ fit <- stan(here("src", "stan", "gen_sv2.stan"),
 simu_mus <- extract(fit)$mu
 simu_phis <- extract(fit)$phi
 simu_sigmas <- extract(fit)$sigma
-simu_alphas <- extract(fit)$alpha_texting
+simu_deltas <- extract(fit)$delta_texting
 simu_hs <- extract(fit)$h
 simu_ys <- extract(fit)$y
 ```
 
 ```{r prior_predictive_corr}
+par(mfrow = c(1, 2), cex=0.8)
+probs <- c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
+# prior predictive time series
+post <- as.matrix(fit)
+sel <- grep("y", colnames(post))
+ci50 <- matrix(NA, nrow = length(sel), ncol = 2)
+ci90 <- matrix(NA, nrow = length(sel), ncol = 2)
+for (i in 1:length(sel)) {
+  ci50[i,] <- quantile(post[,sel[i]], prob = c(0.25, 0.75), names = FALSE)
+  ci90[i,] <- quantile(post[,sel[i]], prob = c(0.05, 0.95), names = FALSE)
+}
+
+plot(0, type= "n", 
+     xlim = c(0,length(input_data$y)), ylim = c(-4, 4),
+     xlab = "Distance", ylab = "Lane Position (mean corrected)", main = "Prior Predictive\n Lane Positioning")
+t <- 1:input_data$T
+polygon(c(rev(t), t), c(rev(ci90[,1]), ci90[,2]), col = c_light, border = FALSE)
+polygon(c(rev(t), t), c(rev(ci50[,1]), ci50[,2]), col = c_mid, border = FALSE)
+t <- which(input_data$texting==2)
+polygon(c(rev(t), t), c(rev(ci90[t,1]), ci90[t,2]), col = d_light, border = FALSE)
+polygon(c(rev(t), t), c(rev(ci50[t,1]), ci50[t,2]), col = d_mid, border = FALSE)
+
+
+# correlogram of log variances
 B <- 23
 counts <- sapply(1:R, function(r) acf(simu_hs[r,], plot=FALSE)$acf)
-probs <- c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
 cred <- sapply(1:B, function(b) quantile(counts[b, ], probs=probs))
-
 idx <- rep(1:B, each=2)
 x <- sapply(1:length(idx), function(b) if(b %% 2 == 0) idx[b] + 0.5 else idx[b] - 0.5) - 1
 pad_cred <- do.call(cbind, lapply(idx, function(n) cred[1:9, n]))
 
-plot(1, type="n", main="Prior Predictive Correlogram of Log variances", 
+plot(1, type="n", main="Prior Predictive Correlogram\nLog variances", 
      xlim=c(0.5, B + 0.5), xlab="y", ylim=c(min(cred[1,]), max(cred[9,])), ylab="")
 polygon(c(x, rev(x)), c(pad_cred[1,], rev(pad_cred[9,])), col = c_light, border = NA)
 polygon(c(x, rev(x)), c(pad_cred[2,], rev(pad_cred[8,])), col = c_light_highlight, border = NA)
@@ -103,6 +129,7 @@ polygon(c(x, rev(x)), c(pad_cred[3,], rev(pad_cred[7,])), col = c_mid, border = 
 polygon(c(x, rev(x)), c(pad_cred[4,], rev(pad_cred[6,])), col = c_mid_highlight, border = NA)
 lines(x, pad_cred[5,], col=c_dark, lwd=2)
 rm(B, counts, cred, idx, x, pad_cred, probs)
+par(mfrow = c(1, 1))
 ```
 
 **Fit the simulated observations and evaluate
@@ -165,30 +192,21 @@ tryCatch({
     post_mean_sigma <- s[,1]
     post_sd_sigma <- s[,3]
     prior_sd_sigma <- 1 * (1 - 2 / pi)
-    z_score_sigma <- abs((post_mean_phi - simu_phi) / post_sd_phi)
-    shrinkage_sigma <- 1 - (post_sd_phi / prior_sd_phi)**2
+    z_score_sigma <- abs((post_mean_sigma- simu_sigma) / post_sd_sigma)
+    shrinkage_sigma <- 1 - (post_sd_sigma / prior_sd_sigma)**2
     
-    s <- summary(fit, probs = c(), pars='alpha_texting[1]')$summary
-    post_mean_sigma <- s[,1]
-    post_sd_sigma <- s[,3]
-    prior_sd_sigma <- 1 
-    z_score_sigma <- abs((post_mean_phi - simu_phi) / post_sd_phi)
-    shrinkage_sigma <- 1 - (post_sd_phi / prior_sd_phi)**2
-    
-    s <- summary(fit, probs = c(), pars='alpha_texting[2]')$summary
-    post_mean_sigma <- s[,1]
-    post_sd_sigma <- s[,3]
-    prior_sd_sigma <- 1 
-    z_score_sigma <- abs((post_mean_phi - simu_phi) / post_sd_phi)
-    shrinkage_sigma <- 1 - (post_sd_phi / prior_sd_phi)**2
+    s <- summary(fit, probs = c(), pars='delta_texting')$summary
+    post_mean_delta <- s[,1]
+    post_sd_delta <- s[,3]
+    prior_sd_delta <- 0.05
+    z_score_delta <- abs((post_mean_delta - simu_delta) / post_sd_delta)
+    shrinkage_delta<- 1 - (post_sd_delta/ prior_sd_delta)**2
     
     c(warning_code,
       sbc_rank_mu, z_score_mu, shrinkage_mu,
       sbc_rank_phi, z_score_phi, shrinkage_phi,
       sbc_rank_sigma, z_score_sigma, shrinkage_sigma,
-      sbc_rank_alpha_1, z_score_alpha_1, shrinkage_alpha_1,
-      sbc_rank_alpha_2, z_score_alpha_2, shrinkage_alpha_2
-      )
+      sbc_rank_delta, z_score_delta, shrinkage_delta)
   }
 }, finally={ stopImplicitCluster() })
 ```
