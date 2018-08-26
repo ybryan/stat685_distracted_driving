@@ -5,8 +5,9 @@ echo "jobQueue: $AWS_BATCH_JQ_NAME"
 echo "computeEnvironment: $AWS_BATCH_CE_NAME"
 echo "resultKey: $RESULT_KEY"
 echo "hashValue: $HASH_VALUE"
+echo "stanFile: $STAN_FILE"
 
-Rscript --vanilla 8schools.R $BATCH_FILE_S3_URL
+Rscript --vanilla $STAN_FILE $BATCH_FILE_S3_URL
 
 ls -l
 aws s3 cp $RESULT_KEY s3://stat685-batch/results/$HASH_VALUE/

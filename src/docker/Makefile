@@ -28,6 +28,7 @@ test:
 	-e BATCH_FILE_S3_URL=s3://stat685-batch/test/fakesha1_1.zip \
 	-e RESULT_KEY=fakesha1_1.Rdata \
 	-e HASH_VALUE=fakesha1 \
+	-e STAN_FILE=8schools.R \
 	byu/rstan myjob.sh 
 	rm fakesha1_1.zip
 
