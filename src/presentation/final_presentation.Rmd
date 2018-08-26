@@ -15,6 +15,12 @@ library(dplyr)
 library(here)
 library(ggplot2)
 library(feather)
+colors <- list(c_light=c("#DCBCBC"), c_light_highlight=c("#C79999"),
+               c_mid=c("#B97C7C"),   c_mid_highlight=c("#A25050"),
+               c_dark=c("#8F2727"),  c_dark_highlight=c("#7C0000"),
+               d_light=c("#BCBCDC"), d_light_highlight=c("#9999C7"),
+               d_mid=c("#7C7CB9"),   d_mid_highlight=c("#5050A2"),
+               d_dark=c("#27278F"),  d_dark_highlight=c("#00007c"))
 ```
 
 ## Experiment
@@ -22,15 +28,15 @@ library(feather)
 ::: {.column}
 - Controlled simulated driving experiment^[1](https://www.nature.com/articles/sdata2017110)^ to asses driving behavior
 
-- Multiple different stressors: cognitive, emotional, sensorimotor (texting)
+- Multiple different stressors: *cognitive, emotional, sensorimotor (texting)*
 
 - Sensors captured vehicle information and driver outputs
 
-- Subject variables: age, gender, personality
+- **Subject variables:** age, gender, personality
 
-- Drive variables: Speed, brake, lane position
+- **Drive variables:** Speed, distance, lane position, etc
 
-- Biological variables: eye gaze, heart rate, breathing rate, etc
+- **Biological variables:** eye gaze, heart rate, breathing, etc
 :::
 ::: {.column}
 ![](https://media.nature.com/lw926/nature-assets/sdata/2017/sdata2017110/images_hires/sdata2017110-f1.jpg)
@@ -60,7 +66,7 @@ library(feather)
     - Prior to lane change: 200
     - After lane change: 190
 
-- Focused on first half (prior to lane change)
+- Focused on **first half** (red area)
 
 - Some drivers exhibit extremely long tails in their lane positioning
 
@@ -86,33 +92,6 @@ df_cleaner <- df %>%
         !dplyr::between(Distance, 5000, 7000)) %>% # Remove lane change
     dplyr::mutate(half=ifelse(Distance < 5000, 1, 2)) %>%
     dplyr::mutate(Stimulus=as.factor(Stimulus))
-
-rect <- data.frame(xmin=5000, xmax=6750, ymin=-Inf, ymax=Inf)
-ggplot(md_raw, aes(Distance, Lane.Position)) + 
-    geom_rect(data=rect, aes(xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax),
-              color="transparent", alpha=0.25, inherit.aes = FALSE) +
-    geom_line(aes(colour=Subject)) + 
-    theme_bw() + 
-    theme(legend.position = "none") + 
-    ggtitle("Texting driving") +
-    xlab("Distance (m)") + 
-    ylab("Lane Position(m)") +
-    coord_cartesian(ylim=c(-5.5, 7)) +
-    annotate("text", x=5750, y=-4, 
-             label="Removed\nLane Change", angle=90, color="Red", 
-             size=4, hjust=0)
-```
-:::
-::::::::::::::
-
-## Preliminary Analysis: T021 Driver
-:::::::::::::: {.columns}
-::: {.column}
-```{r prelim_plot_t021}
-rect_prior <- data.frame(xmin=0, xmax=5000, ymin=-Inf, ymax=Inf)
-rect_post <- data.frame(xmin=7000, xmax=11000, ymin=-Inf, ymax=Inf)
-
-subject <- "T021"
 df_1 <- df_cleaner %>%  dplyr::filter(half==1) %>%
     dplyr::group_by(Subject, Drive) %>%
     dplyr::mutate(ntile=ntile(Distance, 200)) %>% # Bins for resampling
@@ -123,38 +102,46 @@ df_1 <- df_cleaner %>%  dplyr::filter(half==1) %>%
     dplyr::mutate(mrank=dplyr::row_number()) %>% dplyr::filter(mrank==1) %>%
     dplyr::select(-mrank) %>%  dplyr::ungroup()
 
-df_2 <- df_cleaner %>%  dplyr::filter(half==2) %>%
-    dplyr::group_by(Subject, Drive) %>%
-    dplyr::mutate(ntile=ntile(Distance, 190)) %>% # Bins for resampling
-    dplyr::select(-half, -Time, -Lft.Pupil.Diameter, -Rt.Pupil.Diameter, 
-                  -LaneOffset) %>% 
-    dplyr::arrange(Subject, Drive, Distance) %>% 
-    dplyr::group_by(Subject, Drive, ntile) %>%
-    dplyr::mutate(mrank=dplyr::row_number()) %>% dplyr::filter(mrank==1) %>%
-    dplyr::select(-mrank) %>%  dplyr::ungroup()
-md_single <- dplyr::bind_rows(df_1, df_2) %>% 
-    dplyr::filter(Subject==subject & Drive=="MD")
-md_lane <- ggplot(md_single, aes(Distance, Lane.Position)) +
-    geom_line() +
+rect_lane  <- data.frame(xmin=5000, xmax=6750, ymin=-Inf, ymax=Inf)
+rect_prior <- data.frame(xmin=0, xmax=5000, ymin=-Inf, ymax=Inf)
+rect_post  <- data.frame(xmin=6750, xmax=11000, ymin=-Inf, ymax=Inf)
+ggplot(md_raw, aes(Distance, Lane.Position)) + 
+    geom_rect(data=rect_lane, aes(xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax),
+              color="transparent", alpha=0.25, inherit.aes = FALSE) +
     geom_rect(data=rect_prior, aes(xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax),
               color="transparent", alpha=0.25, inherit.aes = FALSE, 
-              fill="palegreen1") +
+              fill=colors$c_dark_highlight) +
     geom_rect(data=rect_post, aes(xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax),
-              color="transparent", alpha=0.25, inherit.aes = FALSE, 
-              fill="lightsalmon1") +
-    geom_point(aes(colour=Stimulus), size=0.5) +
+              color="transparent", alpha=0.25, inherit.aes = FALSE) +
+    geom_line(aes(colour=Subject)) + 
+    theme_bw() + theme(legend.position = "none") + 
+    ggtitle("Texting driving") + xlab("Distance (m)") +  ylab("Lane Position(m)") +
+    coord_cartesian(ylim=c(-5.5, 7)) +
+    annotate("text", x=5750, y=0.5, label="Lane Change", angle=90, color="Red", 
+             size=4, hjust=0)
+```
+:::
+::::::::::::::
+
+## Preliminary Analysis: T021 Driver
+:::::::::::::: {.columns}
+::: {.column}
+```{r prelim_plot_t021}
+subject <- "T021"
+
+load(here('md_lane.RData'))
+ggplot(md_half, aes(Distance, Lane.Position)) +
+    geom_line() +
+    geom_point(aes(colour=Stimulus), size=1.5) +
     theme_bw() + 
-    theme(legend.position = "bottom") + 
-    ggtitle("Texting Driving") +
+    theme(legend.position = "bottom",
+          legend.background = element_rect(fill="gray90", size=.5, linetype="dotted")) + 
+    ggtitle("Texting Driving: First Half (T021)") +
     xlab("Distance (m)") + 
     ylab("Lane Position(m)") +
     coord_cartesian(ylim=c(1.5, 2.5)) +
-    annotate("text", x=1500, y=2.45, 
-             label="First half", color="Black",  size=4, hjust=0) +
-    annotate("text", x=8500, y=2.45, 
-             label="Second half", color="Black",  size=4, hjust=0) +
-    scale_color_hue(labels=c("None", "Texting"))
-md_lane
+    scale_color_manual(labels=c("No Distraction", "Texting"),
+                       values=c(colors$c_mid_highlight, colors$d_mid_highlight))
 ```
 :::
 ::: {.column}
@@ -173,7 +160,7 @@ md_acf <- ggplot(acf_md_df, aes(lag, acf)) +
     geom_hline(aes(yintercept= ciline), linetype=2, color='darkblue') +
     theme_bw() + 
     theme(legend.position = "none") + 
-    ggtitle("Texting Driving: First half") +
+    ggtitle("Texting Driving: First half (T021)") +
     xlab("Lag") + 
     ylab("ACF")
 md_acf
@@ -203,17 +190,17 @@ Single driver staying in the middle of a lane (3.65m wide). Should expect that a
 
 ### Define observations
 
-$$T: \textrm{Number of observations}$$
+$$N: \textrm{Number of observations}$$
 $$N_{texting}: \textrm{Number of texting states } (j)$$
-$$y_t: \textrm{Lane Position (meters)}$$
-$$x_t: \textrm{Texting indicator (1: ND, 2: MD)}$$
+$$y_n: \textrm{Lane Position (meters)}$$
+$$x_n: \textrm{Texting indicator (1: ND, 2: MD)}$$
 :::
 ::: {.column}
 ### Summary Statistic
 Correlogram of $y_t$
 
 ### Likelihood and priors
-$$y_t \sim \mathcal{N}(\alpha + \rho y_{t - 1}, \sigma_{j})$$
+$$y_n \sim \mathcal{N}(\alpha + \rho y_{n - 1}, \sigma_{j})$$
 
 $$\rho \sim \textrm{Beta}(1.5, 1.5)$$
 $$\sigma_i \sim \mathcal{H}(0, 1)$$
@@ -230,15 +217,15 @@ $$\alpha \sim \mathcal{N}(1.825, 0.1)$$
 Mean of lane positioning is constant but with changing volatility. The SV model has additional parameters to deal with the structure of this data. Latent variables and generative nature of model allows for additional complexity.
 
 ### Define observations
-$$T: \textrm{Number of observations}$$
+$$N: \textrm{Number of observations}$$
 $$N_{texting}: \textrm{Number of texting states } (j)$$
-$$y_t: \textrm{Lane Position (meters), mean corrected}$$
-$$x_t: \textrm{Texting indicator (1: ND, 2: MD)}$$
+$$y_n: \textrm{Lane Position (meters), mean corrected}$$
+$$x_n: \textrm{Texting indicator (1: ND, 2: MD)}$$
 :::
 ::: {.column}
 ### Likelihood and priors
-$$y_t \sim \mathcal{N}(0, \textrm{exp}(h_t / 2))$$
-$$h_t \sim \mathcal{N}(\mu + \delta + \phi(h_t - \mu), \sigma)$$
+$$y_n \sim \mathcal{N}(0, \textrm{exp}(h_n / 2))$$
+$$h_n \sim \mathcal{N}(\mu + \delta + \phi(h_n - \mu), \sigma)$$
 $$h_1 \sim \mathcal{N}(\mu, \frac{\sigma}{\sqrt{1 - \phi^2}})$$
 \newline
 $$\mu \sim \mathcal{N}(0, 1): \textrm{Mean log volatility}$$
@@ -247,9 +234,31 @@ $$\sigma \sim \mathcal{N}(0, 1): \textrm{White noise shock}$$
 $$\delta \sim \mathcal{N}(0, 0.05): \textrm{Texting effect}$$
 :::
 ::::::::::::::
-## Conclusions
 
-Texting effect 
+## Multivariate (SV Model) Setup
+:::::::::::::: {.columns}
+::: {.column}
+
+### Conceptual Analysis
+All the drivers!
+
+### Define observations
+$$N_{texting}: \textrm{Number of texting states } (j)$$
+$$N_{drivers}: \textrm{Number of drivers } (i)$$
+$$N: \textrm{Number of observations, } N_{drivers} * N_{obs / driver}$$
+$$y_n: \textrm{Lane Position (meters), mean corrected}$$
+$$x_n: \textrm{Texting indicator (1: ND, 2: MD)}$$
+:::
+::: {.column}
+### Likelihood and priors
+$$y_n \sim \mathcal{N}(0, \textrm{exp}(h_n / 2))$$
+$$h_n \sim \mathcal{N}(\mu + \mu_i + \delta + \delta_i + \phi(h_n - \mu), \sigma)$$
+$$h_1 \sim \mathcal{N}(\mu, \frac{\sigma}{\sqrt{1 - \phi^2}})$$
+:::
+::::::::::::::
+
+
+## Conclusions
 
 # Backup slides
 
