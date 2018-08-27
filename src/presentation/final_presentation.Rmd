@@ -16,6 +16,7 @@ library(here)
 library(ggplot2)
 library(feather)
 library(aws.s3)
+library(bayesplot)
 
 aws.signature::use_credentials(profile = "ybryan")
 ```
@@ -217,7 +218,7 @@ md_acf
 
 - Hierarchical model: Regularization
 
-## AR(1) Setup
+## AR(1): Setup
 :::::::::::::: {.columns}
 ::: {.column}
 ### Conceptual Analysis
@@ -242,9 +243,9 @@ $$\sigma_i \sim \mathcal{H}(0, 1)$$
 $$\alpha \sim \mathcal{N}(1.825, 0.1)$$
 :::
 ::::::::::::::
-## AR(1) Prior Predictive Analysis
+## AR(1): Prior Predictive Analysis
 
-## Stochastic Volatility Setup
+## Stochastic Volatility: Setup
 :::::::::::::: {.columns}
 ::: {.column}
 
@@ -270,6 +271,37 @@ $$\delta \sim \mathcal{N}(0, 0.05): \textrm{Texting effect}$$
 :::
 ::::::::::::::
 
+## Stochastic Volatility: Prior Predictive
+:::::::::::::: {.columns}
+::: {.column}
+![](/Users/bryanyu/Dropbox/STATS/STAT685/src/presentation/graphics/prior/sv2.png)
+:::
+::: {.column}
+**SBC & Shrinkage plots**
+... Awaiting computation
+:::
+::::::::::::::
+
+## Stochastic Volatility: Output
+:::::::::::::: {.columns}
+::: {.column}
+```{r sv2}
+fit <- readRDS(here("etc", "results", "sv2.rds"))
+pairs(fit, pars=c("mu", "sigma", "phi", "delta_texting"))
+```
+:::
+::: {.column}
+```{r sv2_plot}
+bayesplot_theme_set(theme_minimal())
+posterior <- as.matrix(fit)
+plot_title <- ggtitle("Posterior distributions (80% intervals)", "Log volatility")
+mcmc_areas(posterior, 
+           pars = c("mu", "phi", "sigma", "delta_texting"), 
+           prob = 0.8) + plot_title
+```
+:::
+::::::::::::::
+
 # Backup slides
 
 ## References
@@ -282,11 +314,11 @@ $$\delta \sim \mathcal{N}(0, 0.05): \textrm{Texting effect}$$
 
 4. Stan Development Team. "Stan Modeling Language User’s Guide and Reference Manual" Version 2.17.0, Sept 2017
 
-## Computing Cluster Setup (AWS)
+## Computing Cluster Setup (Amazon Web Services)
 
 ### Prior Predictive Modelling
 
-- Each prior predictive model ran 1000 simulations from the generative model
+- Each prior predictive model runs 1000 simulations from the generative model
 
 - Fitting 1000 simulations is a time consuming process on local machine
 
@@ -294,7 +326,6 @@ $$\delta \sim \mathcal{N}(0, 0.05): \textrm{Texting effect}$$
   - 1000 * 4 = 4000 CPU's to run fit observations for one model!
   
 - Created a docker container with `RStan` and submitted jobs to AWS Batch service
-
 ## Future steps
 
 - Incorporate bayesian methods for dealing with missing data

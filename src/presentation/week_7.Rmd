@@ -1,0 +1,211 @@
+---
+title: "STAT 685: Distracted Driving"
+subtitle: "Committee: Dr. Derya Akleman, Dr. Samiran Sinha, Dr. Ergun Akleman"
+author: "Bryan Yu | bryanyu@tamu.edu"
+date: "Summer 2018"
+output: 
+    powerpoint_presentation:
+      reference_doc: template.potx
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(cache = TRUE)
+library(dplyr)
+library(here)
+library(ggplot2)
+library(feather)
+library(aws.s3)
+library(bayesplot)
+
+aws.signature::use_credentials(profile = "ybryan")
+```
+## Summary (Assignment 7)
+
+- Created cloud computing infrastructure to run MCMC samples more effectively
+  - 16 hour run time for one model on laptop 
+  - 1 hour with concurrent docker containers
+  
+- Updated stochastic volatility model with less complexity
+  - Lots of divergences with `phi` suspect (non-stationarity)
+
+- Created stochastic volatility model for all drivers
+
+## Computing Cluster Setup (Amazon Web Services)
+
+### Prior Predictive Modelling
+
+- Each prior predictive model runs 1K simulations from generative model
+
+- Fitting 1000 simulations is a time consuming process on local machine
+
+  - `Stan` runs 4 markov chains in parallel and aggregates (4 cores)
+  - 1000 * 4 = 4000 CPU's to run fit observations for one model!
+  
+- Created a `Stan` docker container with job submissions to cluster (128 cores)
+
+## Stochastic Volatility: Setup
+:::::::::::::: {.columns}
+::: {.column}
+
+### Conceptual Analysis
+Mean of lane positioning is constant but with changing volatility. The SV model has additional parameters to deal with the structure of this data. Latent variables and generative nature of model allows for additional complexity.
+
+### Define observations
+$$T: \textrm{Number of observations}$$
+$$N_{texting}: \textrm{Number of texting states } (j)$$
+$$y_t: \textrm{Lane Position (meters), mean corrected}$$
+$$x_t: \textrm{Texting indicator (1: ND, 2: MD)}$$
+:::
+::: {.column}
+### Likelihood and priors
+$$y_t \sim \mathcal{N}(0, \textrm{exp}(h_t / 2))$$
+$$h_t \sim \mathcal{N}(\mu + \delta + \phi(h_t - \mu), \sigma)$$
+$$h_1 \sim \mathcal{N}(\mu, \frac{\sigma}{\sqrt{1 - \phi^2}})$$
+\newline
+$$\mu \sim \mathcal{N}(0, 1): \textrm{Mean log volatility}$$
+$$\phi \sim \textrm{Uniform}(-1, 1): \textrm{Persistence of volatility}$$
+$$\sigma \sim \mathcal{N}(0, 1)$$
+$$\delta \sim \mathcal{N}(0, 0.05): \textrm{Texting effect}$$
+:::
+::::::::::::::
+
+## T021 Driver
+:::::::::::::: {.columns}
+::: {.column}
+```{r t021}
+load(here("md_lane.RData"))
+colors <- list(c_light=c("#DCBCBC"), c_light_highlight=c("#C79999"),
+               c_mid=c("#B97C7C"),   c_mid_highlight=c("#A25050"),
+               c_dark=c("#8F2727"),  c_dark_highlight=c("#7C0000"),
+               d_light=c("#BCBCDC"), d_light_highlight=c("#9999C7"),
+               d_mid=c("#7C7CB9"),   d_mid_highlight=c("#5050A2"),
+               d_dark=c("#27278F"),  d_dark_highlight=c("#00007c"))
+ggplot(md_half, aes(Distance, Lane.Position)) +
+    geom_line() +
+    geom_point(aes(colour=Stimulus), size=1.5) +
+    theme_bw() + 
+    theme(legend.position = "bottom",
+          legend.background = element_rect(fill="gray90", size=.5, linetype="dotted")) + 
+    ggtitle("Texting Driving (First half)") +
+    xlab("Distance (m)") + 
+    ylab("Lane Position(m)") +
+    coord_cartesian(ylim=c(1.5, 2.5)) +
+    scale_color_manual(labels=c("No Distraction", "Texting"),
+                       values=c(colors$c_mid_highlight, colors$d_mid_highlight))
+```
+:::
+::: {.column}
+```{r prelim_plot_all}
+df_select <- feather::read_feather(here::here("study_df", "df_select.feather"))
+subject_df <- feather::read_feather(here::here("study_df", "subject_df.feather"))
+df <- df_select %>% 
+    dplyr::filter(Distance >= 250) %>%         # Remove driver starts
+    dplyr::filter(Distance <= 11000) %>%       # Remove driver ends
+    dplyr::inner_join(subject_df, by=c("Subject"="subject"))
+
+nd_raw <- df %>%  dplyr::filter(Drive == "ND") 
+md_raw <- df %>%  dplyr::filter(Drive == "MD") 
+rm(subject_df)
+
+df_cleaner <- df %>% 
+    dplyr::filter(!Subject %in% c(
+        "T028", "T032", "T033", "T088")) %>%  # Missing stimulus variable
+    dplyr::filter(!(Subject=="T002")) %>% # Missing eye gaze
+    dplyr::filter(!(Subject=="T003" & Drive=="MD")) %>% 
+    dplyr::filter(!(Subject=="T007")) %>% 
+    dplyr::filter(!(Subject=="T008" & Drive=="MD")) %>% 
+    dplyr::filter(!(Subject=="T015")) %>% 
+    dplyr::filter(!(Subject=="T017")) %>% 
+    dplyr::filter(!(Subject=="T023")) %>% 
+    dplyr::filter(!(Subject=="T027")) %>% 
+    dplyr::filter(!(Subject=="T028" & Drive=="MD")) %>% 
+    dplyr::filter(!(Subject=="T029")) %>% 
+    dplyr::filter(!(Subject=="T032")) %>% 
+    dplyr::filter(!(Subject=="T036")) %>% 
+    dplyr::filter(!(Subject=="T038")) %>% 
+    dplyr::filter(!(Subject=="T042")) %>% 
+    dplyr::filter(!(Subject=="T047")) %>% 
+    dplyr::filter(!(Subject=="T055" & Drive=="ND")) %>% 
+    dplyr::filter(!(Subject=="T086" & Drive=="ND")) %>%
+    dplyr::filter(
+        !dplyr::between(Distance, 5000, 7000)) %>% # Remove lane change
+    dplyr::mutate(half=ifelse(Distance < 5000, 1, 2)) %>%
+    dplyr::mutate(Stimulus=as.factor(Stimulus))
+
+rect <- data.frame(xmin=5000, xmax=11000, ymin=-Inf, ymax=Inf)
+ggplot(md_raw, aes(Distance, Lane.Position)) + 
+    geom_rect(data=rect, aes(xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax),
+              color="transparent", alpha=0.25, inherit.aes = FALSE) +
+    geom_line(aes(colour=Subject)) + 
+    theme_bw() + 
+    theme(legend.position = "none") + 
+    ggtitle("Texting driving") +
+    xlab("Distance (m)") + 
+    ylab("Lane Position(m)") +
+    coord_cartesian(ylim=c(-5.5, 7)) +
+    annotate("text", x=5750, y=0, label="Lane Change", angle=90, color="Red",  size=4, hjust=0) +
+    annotate("text", x=1500, y=-4.25, label="Model Focus",  size=5, hjust=0)
+  
+```
+:::
+::::::::::::::
+
+## Prior Predictive Fit Tests
+:::::::::::::: {.columns}
+::: {.column}
+![](/Users/bryanyu/Dropbox/STATS/STAT685/etc/Shrinkage.png)
+:::
+::: {.column}
+![](/Users/bryanyu/Dropbox/STATS/STAT685/etc/sbc.png)
+:::
+::::::::::::::
+
+## Stochastic Volatility: Prior Predictive Fits
+:::::::::::::: {.columns}
+::: {.column}
+![](/Users/bryanyu/Dropbox/STATS/STAT685/src/presentation/graphics/prior/sv2.png)
+:::
+::: {.column}
+![](/Users/bryanyu/Dropbox/STATS/STAT685/src/presentation/graphics/prior/sv2_sbc_shrink.png)
+:::
+::::::::::::::
+
+## Stochastic Volatility: Output
+:::::::::::::: {.columns}
+::: {.column}
+```{r sv2}
+fit <- readRDS(here("etc", "results", "sv2.rds"))
+pairs(fit, pars=c("mu", "sigma", "phi", "delta_texting"))
+```
+:::
+::: {.column}
+```{r sv2_plot}
+bayesplot_theme_set(theme_minimal())
+posterior <- as.matrix(fit)
+plot_title <- ggtitle("Posterior distributions (80% intervals)", "Log volatility")
+mcmc_areas(posterior, 
+           pars = c("mu", "phi", "sigma", "delta_texting"), 
+           prob = 0.8) + plot_title
+```
+:::
+::::::::::::::
+## References
+
+1. Taamneh, S. et al. A multimodal dataset for various forms of distracted driving. Sci. Data 4:170110 doi: 10.1038/sdata.2017.110 (2017).
+
+2. Betancourt, Michael. 2018. "A Principled Bayesian Workflow" June 2018
+
+3. Kim, Shephard, Chib (1998) "Stochastic Volatility: Likelihood Inference and Comparison with ARCH Models" *The Review of Economic Studies Vol. 65, No. 3*
+
+4. Stan Development Team. "Stan Modeling Language User’s Guide and Reference Manual" Version 2.17.0, Sept 2017
+
+5. Betancourt, Michael. "Calibrating Model-Based Inferences and Decisions" March 2018
+
+6. Sean Talts, Michael Betancourt, Daniel Simpson, Aki Vehtari, Andrew Gelman "Validating Bayesian Inference Algorithms with Simulation-Based Calibration" April 2018
+
+## Future steps
+
+- Fix divergences
+
+- Run all drivers model
