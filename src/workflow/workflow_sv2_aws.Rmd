@@ -12,11 +12,15 @@ library(rstan)
 library(dplyr)
 library(ggplot2)
 library(digest)
+library(purrr)
+library(aws.s3)
+library(aws.ec2metadata)
+library(aws.signature)
 
 util <- new.env()
 source(here('src', 'codebase', 'stan_utility.R'), local=util)
 rstan_options(auto_write = TRUE)
-options(mc.cores=parallel::detectCores())
+options(mc.cores = parallel::detectCores())
 
 load(here('md_lane.RData'))
 input_data <- list("y" = md_half$Lane.Position - mean(md_half$Lane.Position),
@@ -88,8 +92,7 @@ hash <- sha1(c(readLines(here("src", "stan", "gen_sv2.stan")),
 ```
 
 ```{r prior_predictive}
-png(filename=here("src", "presentation", "graphics", "prior", "sv2.png"),
-    width=800, height=600)
+par(cex=0.8)
 probs <- c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
 # prior predictive time series
 post <- as.matrix(fit)
@@ -102,23 +105,67 @@ for (i in 1:length(sel)) {
 }
 
 plot(0, type= "n", 
-     xlim = c(0,length(input_data$y)), ylim = c(-4, 4),
+     xlim = c(0,length(input_data$y)), ylim = c(-2, 2),
      xlab = "Distance", ylab = "Lane Position (mean corrected)",
-     main = "Prior Predictive Lane Positioning")
+     main = "Prior Predictive Lane Positioning\n50% and 90% intervals")
 t <- 1:input_data$N
 polygon(c(rev(t), t), c(rev(ci90[,1]), ci90[,2]), col = colors$c_light, border = FALSE)
 polygon(c(rev(t), t), c(rev(ci50[,1]), ci50[,2]), col = colors$c_mid, border = FALSE)
 t <- which(input_data$texting==2)
 polygon(c(rev(t), t), c(rev(ci90[t,1]), ci90[t,2]), col = colors$d_light, border = FALSE)
 polygon(c(rev(t), t), c(rev(ci50[t,1]), ci50[t,2]), col = colors$d_mid, border = FALSE)
-legend("bottomright", c("50% Interval", "90% Interval"),
-       col = c(colors$c_light, colors$d_mid),
+legend("bottomright", c("No stimulus", "Texting"),
+       col = c(colors$c_mid, colors$d_mid),
        lwd = c(2,2,2), text.font=0.5)
-dev.off()
 ```
 
+
+```{r create_zips, echo=FALSE, results="hide"}
+simu_list <- t(data.matrix(data.frame(simu_mus, simu_phis, simu_sigmas, simu_deltas, simu_ys)))
+fit_model = stan_model(here('src', 'stan', 'sv2.stan'))
+
+create_zip <- function(r, hash, simu_list, stan_file) {
+  simu <- simu_list[, r]
+  simu_mu <- simu[1]
+  simu_phi <- simu[2]
+  simu_sigma <- simu[3]
+  simu_delta <- simu[4]
+  simu_y <- simu[5:(input_data$N + 4)]
+  
+  stan_name <- strsplit(stan_file, "[.]")[[1]][1]
+  tmp_dir <- paste("/tmp/", hash, "_", as.character(r), sep="")
+  zip_file_path <- paste("/tmp/zip_files/", hash, "/", 
+                         hash, "_", as.character(r), ".zip", sep="")
+  simu_data_path <- paste(tmp_dir, "/simu_data.Rdata", sep="")
+  myjob_path <- here("src", "docker", "myjob.sh")
+  rds_path <- here("src", "stan",  paste(strsplit(stan_file, "[.]")[[1]][1], ".rds", sep=""))
+  stan_path <- here("src", "stan", stan_file)
+  r_script_path <- here("src", "docker", 
+                        stan_name, paste(strsplit(stan_file, "[.]")[[1]][1], ".R", sep=""))
+  s3_key <- paste("stan_runs/", stan_file, "/", hash, "_", as.character(r), ".zip", sep="")
+  
+  dir.create(tmp_dir)
+  file.copy(from=stan_path, to=tmp_dir)
+  file.copy(from=rds_path, to=tmp_dir)
+  file.copy(from=myjob_path, to=tmp_dir)
+  file.copy(from=r_script_path, to=tmp_dir)
+  sim_data <- list("y" = simu_y, 
+                   "N" = length(simu_y), 
+                   "N_texting" = input_data$N_texting, 
+                   "texting" = input_data$texting)
+  save(simu_data, simu_mu, simu_sigma, simu_phi, simu_delta, file=simu_data_path)  
+  files2zip <- dir(tmp_dir, full.names = TRUE)
+  zip(zipfile = zip_file_path, files = files2zip)
+  #put_object(zip_file_path, object=s3_key, bucket="stat685-batch") 
+}
+
+dir.create(paste("/tmp/zip_files/", hash, "/", sep=""))
+1:5 %>% map(function(x) create_zip(x, hash, simu_list, stan_file))
+```
+
+
 **Fit the simulated observations and evaluate
-```{r fit_sim_obs}
+```{r fit_sim_obs, eval=FALSE}
 if(!file.exists(here("data", "generative_fits", hash))) {
   tryCatch({
     registerDoParallel(makeCluster(detectCores()))
@@ -291,7 +338,8 @@ par(mfrow = c(1, 1))
 # 6. Fit observations and evaluate
 ```{r actual_fit}
 fit <- stan(file=here('src', 'stan', 'sv2.stan'), data=input_data, seed=4938483, refresh=2000)
-pairs(fit, pars=c("mu", "sigma", "phi"))
+pairs(fit, pars=c("mu", "sigma", "phi", "delta_texting"))
+plot(fit, pars=c("mu", "sigma", "phi", "delta_texting"))
 ```
 
 # 7. Analyze posterior predictive distribution
