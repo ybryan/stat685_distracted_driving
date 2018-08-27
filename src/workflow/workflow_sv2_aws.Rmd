@@ -119,18 +119,19 @@ legend("bottomright", c("No stimulus", "Texting"),
        lwd = c(2,2,2), text.font=0.5)
 ```
 
-
 ```{r create_zips, echo=FALSE, results="hide"}
 simu_list <- t(data.matrix(data.frame(simu_mus, simu_phis, simu_sigmas, simu_deltas, simu_ys)))
-fit_model = stan_model(here('src', 'stan', 'sv2.stan'))
+stan_file <- 'sv2.stan'
+fit_model <- stan_model(here('src', 'stan', stan_file))
+dir.create(paste("/tmp/zip_files/", hash, "/", sep=""))
 
-create_zip <- function(r, hash, simu_list, stan_file) {
-  simu <- simu_list[, r]
+create_zip <- function(hash, simu, stan_file) {
+  library(here)
   simu_mu <- simu[1]
   simu_phi <- simu[2]
   simu_sigma <- simu[3]
   simu_delta <- simu[4]
-  simu_y <- simu[5:(input_data$N + 4)]
+  simu_y <- simu[5:length(simu)]
   
   stan_name <- strsplit(stan_file, "[.]")[[1]][1]
   tmp_dir <- paste("/tmp/", hash, "_", as.character(r), sep="")
@@ -138,116 +139,41 @@ create_zip <- function(r, hash, simu_list, stan_file) {
                          hash, "_", as.character(r), ".zip", sep="")
   simu_data_path <- paste(tmp_dir, "/simu_data.Rdata", sep="")
   myjob_path <- here("src", "docker", "myjob.sh")
-  rds_path <- here("src", "stan",  paste(strsplit(stan_file, "[.]")[[1]][1], ".rds", sep=""))
+  rds_path <- here("src", "stan",  paste(
+    strsplit(stan_file, "[.]")[[1]][1], ".rds", sep=""))
   stan_path <- here("src", "stan", stan_file)
   r_script_path <- here("src", "docker", 
-                        stan_name, paste(strsplit(stan_file, "[.]")[[1]][1], ".R", sep=""))
+                        stan_name, paste(
+                          strsplit(stan_file, "[.]")[[1]][1], ".R", sep=""))
   s3_key <- paste("stan_runs/", stan_file, "/", hash, "_", as.character(r), ".zip", sep="")
   
   dir.create(tmp_dir)
+  simu_data <- list("y" = simu_y, 
+                   "N" = length(simu_y), 
+                   "N_texting" = input_data$N_texting, 
+                   "texting" = input_data$texting)
+  file.copy(from=here('src', 'codebase', 'stan_utility.R'), to=tmp_dir)
   file.copy(from=stan_path, to=tmp_dir)
   file.copy(from=rds_path, to=tmp_dir)
   file.copy(from=myjob_path, to=tmp_dir)
   file.copy(from=r_script_path, to=tmp_dir)
-  sim_data <- list("y" = simu_y, 
-                   "N" = length(simu_y), 
-                   "N_texting" = input_data$N_texting, 
-                   "texting" = input_data$texting)
   save(simu_data, simu_mu, simu_sigma, simu_phi, simu_delta, file=simu_data_path)  
   files2zip <- dir(tmp_dir, full.names = TRUE)
   zip(zipfile = zip_file_path, files = files2zip)
-  #put_object(zip_file_path, object=s3_key, bucket="stat685-batch") 
+  aws.s3::put_object(zip_file_path, object=s3_key, bucket="stat685-batch") 
 }
+```
 
-dir.create(paste("/tmp/zip_files/", hash, "/", sep=""))
-1:5 %>% map(function(x) create_zip(x, hash, simu_list, stan_file))
+```{r send_to_aws}
+1 %>% map(function(x) create_zip(x, hash, simu_list, "sv2.stan"))
+library(foreach)
+library(doParallel)
+registerDoParallel(makeCluster(detectCores()))
+foreach(simu=simu_list) %dopar% {create_zip(hash, simu_list, stan_file)}
 ```
 
 
 **Fit the simulated observations and evaluate
-```{r fit_sim_obs, eval=FALSE}
-if(!file.exists(here("data", "generative_fits", hash))) {
-  tryCatch({
-    registerDoParallel(makeCluster(detectCores()))
-  
-    simu_list <- t(data.matrix(data.frame(simu_mus, simu_phis, simu_sigmas, simu_deltas, simu_ys)))
-  
-    # Compile the posterior fit model
-    fit_model = stan_model(here('src', 'stan', 'sv2.stan'))
-  
-    ensemble_output <- foreach(simu=simu_list, .combine='cbind') %dopar% {
-      simu_mu <- simu[1]
-      simu_phi <- simu[2]
-      simu_sigma <- simu[3]
-      simu_delta <- simu[4]
-      simu_y <- simu[5:(input_data$N + 4)]
-      
-      # Fit the simulated observation
-      sim_data <- list("y" = simu_y, 
-                       "N" = length(simu_y), 
-                       "N_texting" = input_data$N_texting, 
-                       "texting" = input_data$texting)
-      capture.output(library(rstan))
-      capture.output(
-        fit <- sampling(fit_model, 
-                        data=sim_data, 
-                        iter=2000,
-                        seed=4938483,
-                        control = list(adapt_delta = 0.8))
-        )
-      # Compute diagnostics
-      util <- new.env()
-      source(here::here('src', 'codebase', 'stan_utility.R'), local=util)
-  
-      warning_code <- util$check_all_diagnostics(fit, quiet=TRUE)
-  
-      # Compute rank of prior draw with respect to thinned posterior draws
-      sbc_rank_mu <- sum(simu_mu < extract(fit)$mu[seq(1, 4000 - 8, 8)])
-      sbc_rank_phi <- sum(simu_phi < extract(fit)$phi[seq(1, 4000 - 8, 8)])
-      sbc_rank_sigma <- sum(simu_sigma < extract(fit)$sigma[seq(1, 4000 - 8, 8)])
-      sbc_rank_delta <- sum(simu_delta < extract(fit)$delta_texting[seq(1, 4000 - 8, 8)])
-  
-      # Compute posterior sensitivities
-      s <- summary(fit, probs = c(), pars='mu')$summary
-      post_mean_mu <- s[,1]
-      post_sd_mu <- s[,3]
-      prior_sd_mu <- 1
-      z_score_mu <- abs((post_mean_mu - simu_mu) / post_sd_mu)
-      shrinkage_mu <- 1 - (post_sd_mu / prior_sd_mu)**2
-  
-      s <- summary(fit, probs = c(), pars='phi')$summary
-      post_mean_phi <- s[,1]
-      post_sd_phi <- s[,3]
-      prior_sd_phi <- sqrt(1/12 * (1 - -1)^2)
-      z_score_phi <- abs((post_mean_phi - simu_phi) / post_sd_phi)
-      shrinkage_phi <- 1 - (post_sd_phi / prior_sd_phi)**2
-  
-      s <- summary(fit, probs = c(), pars='sigma')$summary
-      post_mean_sigma <- s[,1]
-      post_sd_sigma <- s[,3]
-      prior_sd_sigma <- 1 * (1 - 2 / pi)
-      z_score_sigma <- abs((post_mean_sigma- simu_sigma) / post_sd_sigma)
-      shrinkage_sigma <- 1 - (post_sd_sigma / prior_sd_sigma)**2
-      
-      s <- summary(fit, probs = c(), pars='delta_texting')$summary
-      post_mean_delta <- s[,1]
-      post_sd_delta <- s[,3]
-      prior_sd_delta <- 0.05
-      z_score_delta <- abs((post_mean_delta - simu_delta) / post_sd_delta)
-      shrinkage_delta <- 1 - (post_sd_delta/ prior_sd_delta)**2
-      
-      c(warning_code,
-        sbc_rank_mu, z_score_mu, shrinkage_mu,
-        sbc_rank_phi, z_score_phi, shrinkage_phi,
-        sbc_rank_sigma, z_score_sigma, shrinkage_sigma,
-        sbc_rank_delta, z_score_delta, shrinkage_delta)
-      }
-    save(ensemble_output, file=here("data", "generative_fits", hash))
-  }, finally={ stopImplicitCluster() })
-} else {
-  load(here("data", "generative_fits", hash)) 
-}
-```
 
 ```{r warning_codes}
 warning_code <- ensemble_output[1,]

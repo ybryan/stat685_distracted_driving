@@ -144,7 +144,6 @@ if(!file.exists(here("data", "generative_fits", hash))) {
       capture.output(
         fit <- sampling(fit_model, 
                         data=sim_data, 
-                        iter=2000,
                         seed=4938483,
                         control = list(adapt_delta = 0.8))
         )
@@ -291,7 +290,9 @@ par(mfrow = c(1, 1))
 # 6. Fit observations and evaluate
 ```{r actual_fit}
 fit <- stan(file=here('src', 'stan', 'sv2.stan'), data=input_data, seed=4938483, refresh=2000)
-pairs(fit, pars=c("mu", "sigma", "phi"))
+pairs(fit, pars=c("mu", "sigma", "phi", "delta_texting"))
+plot(fit, pars=c("mu", "sigma", "phi", "delta_texting"))
+saveRDS(fit, file=here("etc", "results", "sv2.rds"))
 ```
 
 # 7. Analyze posterior predictive distribution
