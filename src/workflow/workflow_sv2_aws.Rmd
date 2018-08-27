@@ -125,13 +125,14 @@ stan_file <- 'sv2.stan'
 fit_model <- stan_model(here('src', 'stan', stan_file))
 dir.create(paste("/tmp/zip_files/", hash, "/", sep=""))
 
-create_zip <- function(hash, simu, stan_file) {
+create_zip <- function(r, hash, simu_list, stan_file) {
   library(here)
+  simu <- simu_list[, r]
   simu_mu <- simu[1]
   simu_phi <- simu[2]
   simu_sigma <- simu[3]
   simu_delta <- simu[4]
-  simu_y <- simu[5:length(simu)]
+  simu_y <- simu[5:length(simu_list[, 1])]
   
   stan_name <- strsplit(stan_file, "[.]")[[1]][1]
   tmp_dir <- paste("/tmp/", hash, "_", as.character(r), sep="")
@@ -164,29 +165,47 @@ create_zip <- function(hash, simu, stan_file) {
 }
 ```
 
-```{r send_to_aws}
+```{r send_to_aws, results="hide"}
 1 %>% map(function(x) create_zip(x, hash, simu_list, "sv2.stan"))
 library(foreach)
 library(doParallel)
 registerDoParallel(makeCluster(detectCores()))
-foreach(simu=simu_list) %dopar% {create_zip(hash, simu_list, stan_file)}
+foreach(i=2:R) %dopar% create_zip(i, hash, simu_list, stan_file)
 ```
 
+```{r cleanup_prep_results}
+system(paste("rm -rf ", "/tmp/", hash, "*", sep=""))
+system(paste("rm -rf ", "/tmp/zip_files/", hash, "/", sep=""))
+
+result_dir <- here("etc", "results", stan_file)
+dir.create(result_dir)
+system(paste("aws s3 cp s3://stat685-batch/results/", stan_file, "/ ", result_dir, "/ --recursive", sep=""))
+```
 
 **Fit the simulated observations and evaluate
+```{r}
+output_list <- dir(result_dir)
+ensemble_output <- foreach(output=output_list, .combine='cbind') %dopar% {
+   readRDS(paste(result_dir, "/", output, sep=""))
+}
+```
 
 ```{r warning_codes}
 warning_code <- ensemble_output[1,]
 if (sum(warning_code) != 0) {
+  percentage <- length(warning_code[warning_code!=0]) / length(output_list) * 100
   print ("Some simulated posterior fits in the generative ensemble encountered problems!")
-  warning_code_df %>% group_by(warning_code) %>% summarize(counts = n())
+  print ("Percentage with problems:")
+  print (percentage)
 } else {
   print ("No posterior fits in the generative ensemble encountered problems!")
 }
 ```
 
 ```{r sbc}
-par(mfrow=c(1, 4))
+png(filename=here("src", "presentation", "graphics", "prior", "sv2_sbc_shrink.png"),
+    width=800, height=600)
+par(mfrow=c(2, 4))
 sbc_rank <- ensemble_output[2,]
 sbc_hist <- hist(sbc_rank, seq(0, 500, 25) - 0.5, plot=FALSE)
 plot(sbc_hist, main="", xlab="Prior Rank (mu)", yaxt='n', ylab="")
@@ -234,10 +253,7 @@ bar_y <- c(high, high, mid, low, low, mid, high)
 polygon(bar_x, bar_y, col=c("#DDDDDD"), border=NA)
 segments(x0=0, x1=500, y0=mid, y1=mid, col=c("#999999"), lwd=2)
 plot(sbc_hist, col=colors$c_dark, border=colors$c_dark_highlight, add=T)
-```
 
-```{r zscore_shrinkage}
-par(mfrow = c(1, 4))
 # mu
 z_score <- ensemble_output[3,]
 shrinkage <- ensemble_output[4,]
@@ -259,6 +275,7 @@ shrinkage <- ensemble_output[13,]
 plot(shrinkage, z_score, col=c("#8F272720"), lwd=2, pch=16, cex=0.8, main="Delta",
      xlim=c(0, 1), xlab="Posterior Shrinkage", ylim=c(0, 5), ylab="Posterior z-Score")
 par(mfrow = c(1, 1))
+dev.off()
 ```
 
 # 6. Fit observations and evaluate

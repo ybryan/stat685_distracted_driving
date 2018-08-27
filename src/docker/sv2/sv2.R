@@ -59,7 +59,7 @@ shrinkage_sigma <- 1 - (post_sd_sigma / prior_sd_sigma)**2
 s <- summary(fit, probs = c(), pars='delta_texting')$summary
 post_mean_delta <- s[,1]
 post_sd_delta <- s[,3]
-prior_sd_delta <- 0.05
+prior_sd_delta <- 0.5
 z_score_delta <- abs((post_mean_delta - simu_delta) / post_sd_delta)
 shrinkage_delta <- 1 - (post_sd_delta/ prior_sd_delta)**2
 
