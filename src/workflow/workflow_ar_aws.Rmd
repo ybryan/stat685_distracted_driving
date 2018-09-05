@@ -303,7 +303,7 @@ plot(sbc_hist, col=colors$c_dark, border=colors$c_dark_highlight, add=T)
 
 sbc_rank <- ensemble_output[5,]
 sbc_hist <- hist(sbc_rank, seq(0, 500, 25) - 0.5, plot=FALSE)
-plot(sbc_hist, main="", xlab="Prior Rank (phi)", yaxt='n', ylab="")
+plot(sbc_hist, main="", xlab="Prior Rank (sigma)", yaxt='n', ylab="")
 low <- qbinom(0.005, R, 1 / 20)
 mid <- qbinom(0.5, R, 1 / 20)
 high <- qbinom(0.995, R, 1 / 20)
@@ -315,7 +315,7 @@ plot(sbc_hist, col=colors$c_dark, border=colors$c_dark_highlight, add=T)
 
 sbc_rank <- ensemble_output[8,]
 sbc_hist <- hist(sbc_rank, seq(0, 500, 25) - 0.5, plot=FALSE)
-plot(sbc_hist, main="", xlab="Prior Rank (sigma)", yaxt='n', ylab="")
+plot(sbc_hist, main="", xlab="Prior Rank (rho)", yaxt='n', ylab="")
 low <- qbinom(0.005, R, 1 / 20)
 mid <- qbinom(0.5, R, 1 / 20)
 high <- qbinom(0.995, R, 1 / 20)
