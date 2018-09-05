@@ -5,14 +5,13 @@ data {
 }
 
 generated quantities {
-  real alpha = normal_rng(1.825, 0.25);
-  real<lower=0, upper=1> rho = uniform_rng(-1, 1);
+  real alpha = normal_rng(0, 1);
+  real<lower=0, upper=1> rho = uniform_rng(0, 1);
   real<lower=0> sigma = fabs(normal_rng(0, 1));
-  real delta_texting = normal_rng(0, 0.5);
-  
+  real<lower=0> delta_texting = fabs(normal_rng(0, 1));
   real y_ppc[N];
 
-  y_ppc[1] = 1.825;
+  y_ppc[1] = 0;
   for (n in 2:N) {
     y_ppc[n] = normal_rng(alpha + rho * y_ppc[n - 1], sigma + delta_texting * (texting[n] - 1));
   }

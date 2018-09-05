@@ -119,8 +119,7 @@ rm(df_select, df)
 df_1 <- df_cleaner %>%  dplyr::filter(half==1) %>%
     dplyr::group_by(Subject, Drive) %>%
     dplyr::mutate(ntile=ntile(Distance, 200)) %>% # Bins for resampling
-    dplyr::select(-half, -Time, -Lft.Pupil.Diameter, -Rt.Pupil.Diameter, 
-                  -LaneOffset) %>% 
+    dplyr::select(-half, -Time, -Lft.Pupil.Diameter, -Rt.Pupil.Diameter) %>% 
     dplyr::arrange(Subject, Drive, Distance) %>% 
     dplyr::group_by(Subject, Drive, ntile) %>%
     dplyr::mutate(mrank=dplyr::row_number()) %>% dplyr::filter(mrank==1) %>%
@@ -129,8 +128,7 @@ df_1 <- df_cleaner %>%  dplyr::filter(half==1) %>%
 df_2 <- df_cleaner %>%  dplyr::filter(half==2) %>%
     dplyr::group_by(Subject, Drive) %>%
     dplyr::mutate(ntile=ntile(Distance, 190)) %>% # Bins for resampling
-    dplyr::select(-half, -Time, -Lft.Pupil.Diameter, -Rt.Pupil.Diameter, 
-                  -LaneOffset) %>% 
+    dplyr::select(-half, -Time, -Lft.Pupil.Diameter, -Rt.Pupil.Diameter) %>% 
     dplyr::arrange(Subject, Drive, Distance) %>% 
     dplyr::group_by(Subject, Drive, ntile) %>%
     dplyr::mutate(mrank=dplyr::row_number()) %>% dplyr::filter(mrank==1) %>%
