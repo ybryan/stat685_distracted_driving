@@ -23,7 +23,7 @@ rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
 
 load(here('md_lane.RData'))
-input_data <- list("y" = md_half$Lane.Position - mean(md_half$Lane.Position),
+input_data <- list("y" = md_half$LaneOffset,
                    "texting" = as.integer(md_half$Stimulus),
                    "N" = length(md_half$Lane.Position),
                    "N_texting" = length(unique(as.integer(md_half$Stimulus))))
@@ -252,11 +252,11 @@ system(paste("rm -rf ", "/tmp/", hash, "*", sep=""))
 system(paste("rm -rf ", "/tmp/zip_files/", hash, "/", sep=""))
 sys_output <- system(paste("aws s3 ls s3://stat685-batch/results/", stan_file, "/", hash, "/", sep=""), intern=TRUE)
 if (length(sys_output) < 2) {
-  print("didn't fun")
+  print("didn't run")
 }
 ```
 
-```{results}
+```{r results}
 result_dir <- here("etc", "results", stan_file)
 dir.create(result_dir)
 system(paste("aws s3 cp s3://stat685-batch/results/", stan_file, "/ ", result_dir, "/ --recursive", sep=""))
@@ -264,9 +264,12 @@ system(paste("aws s3 cp s3://stat685-batch/results/", stan_file, "/ ", result_di
 
 **Fit the simulated observations and evaluate
 ```{r}
-output_list <- dir(result_dir)
+library(foreach)
+library(doParallel)
+registerDoParallel(makeCluster(detectCores()))
+output_list <- dir(paste(result_dir, "/", hash, sep=""))
 ensemble_output <- foreach(output=output_list, .combine='cbind') %dopar% {
-   readRDS(paste(result_dir, "/", output, sep=""))
+   readRDS(paste(result_dir, "/", hash, "/", output, sep=""))
 }
 ```
 
@@ -334,22 +337,22 @@ polygon(bar_x, bar_y, col=c("#DDDDDD"), border=NA)
 segments(x0=0, x1=500, y0=mid, y1=mid, col=c("#999999"), lwd=2)
 plot(sbc_hist, col=colors$c_dark, border=colors$c_dark_highlight, add=T)
 
-# mu
+# alpha
 z_score <- ensemble_output[3,]
 shrinkage <- ensemble_output[4,]
-plot(shrinkage, z_score, col=c("#8F272720"), lwd=2, pch=16, cex=0.8, main="Mu",
+plot(shrinkage, z_score, col=c("#8F272720"), lwd=2, pch=16, cex=0.8, main="alpha",
      xlim=c(0, 1), xlab="Posterior Shrinkage", ylim=c(0, 5), ylab="Posterior z-Score")
-# phi
+# rho
 z_score <- ensemble_output[6,]
 shrinkage <- ensemble_output[7,]
-plot(shrinkage, z_score, col=c("#8F272720"), lwd=2, pch=16, cex=0.8, main="Phi",
+plot(shrinkage, z_score, col=c("#8F272720"), lwd=2, pch=16, cex=0.8, main="sigma",
      xlim=c(0, 1), xlab="Posterior Shrinkage", ylim=c(0, 5), ylab="Posterior z-Score")
 # sigma
 z_score <- ensemble_output[9,]
 shrinkage <- ensemble_output[10,]
-plot(shrinkage, z_score, col=c("#8F272720"), lwd=2, pch=16, cex=0.8, main="Sigma",
+plot(shrinkage, z_score, col=c("#8F272720"), lwd=2, pch=16, cex=0.8, main="rho",
      xlim=c(0, 1), xlab="Posterior Shrinkage", ylim=c(0, 5), ylab="Posterior z-Score")
-# delta
+# delta_texting
 z_score <- ensemble_output[12,]
 shrinkage <- ensemble_output[13,]
 plot(shrinkage, z_score, col=c("#8F272720"), lwd=2, pch=16, cex=0.8, main="Delta",
@@ -361,8 +364,8 @@ dev.off()
 # 6. Fit observations and evaluate
 ```{r actual_fit}
 fit <- stan(file=here('src', 'stan', 'ar1_texting.stan'), data=input_data, seed=4938483, refresh=2000)
-pairs(fit, pars=c("mu", "sigma", "phi", "delta_texting"))
-plot(fit, pars=c("mu", "sigma", "phi", "delta_texting"))
+pairs(fit, pars=c("alpha", "sigma", "rho", "delta_texting"))
+plot(fit, pars=c("alpha", "sigma", "rho", "delta_texting"))
 ```
 
 # 7. Analyze posterior predictive distribution
