@@ -29,9 +29,9 @@ source('stan_utility.R', local=util)
 warning_code <- util$check_all_diagnostics(fit, quiet=TRUE)
 
 # Compute rank of prior draw with respect to thinned posterior draws
-sbc_rank_alpha <- sum(simu_alpha < extract(fit)$mu[seq(1, 4000 - 8, 8)])
-sbc_rank_sigma <- sum(simu_sigma < extract(fit)$phi[seq(1, 4000 - 8, 8)])
-sbc_rank_rho <- sum(simu_rho < extract(fit)$sigma[seq(1, 4000 - 8, 8)])
+sbc_rank_alpha <- sum(simu_alpha < extract(fit)$alpha[seq(1, 4000 - 8, 8)])
+sbc_rank_sigma <- sum(simu_sigma < extract(fit)$sigma[seq(1, 4000 - 8, 8)])
+sbc_rank_rho <- sum(simu_rho < extract(fit)$rho[seq(1, 4000 - 8, 8)])
 sbc_rank_delta_texting <- sum(simu_delta_texting < extract(fit)$delta_texting[seq(1, 4000 - 8, 8)])
 
 # Compute posterior sensitivities

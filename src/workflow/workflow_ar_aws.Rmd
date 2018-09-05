@@ -94,27 +94,26 @@ hash <- sha1(c(readLines(here("src", "stan", "gen_ar1_texting.stan")),
 probs <- c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
 # prior predictive time series
 post <- as.matrix(fit)
-sel <- grep("y", colnames(post))
+sel <- grep("y_ppc", colnames(post))
 ci50 <- matrix(NA, nrow = length(sel), ncol = 2)
-ci90 <- matrix(NA, nrow = length(sel), ncol = 2)
+ci95 <- matrix(NA, nrow = length(sel), ncol = 2)
 for (i in 1:length(sel)) {
   ci50[i,] <- quantile(post[,sel[i]], prob = c(0.25, 0.75), names = FALSE)
-  ci90[i,] <- quantile(post[,sel[i]], prob = c(0.05, 0.95), names = FALSE)
+  ci95[i,] <- quantile(post[,sel[i]], prob = c(0.025, 0.975), names = FALSE)
 }
 
 plot(0, type= "n", 
-     xlim = c(0,length(input_data$y)), ylim = c(-10, 10),
-     xlab = "Distance", ylab = "Lane Position (mean corrected)",
+     xlim = c(0,max(md_half$Distance)), ylim = c(-1, 1),
+     xlab = "Distance", ylab = "Lane Offset (m)",
      main = "Prior Predictive Lane Offset\n50% and 90% intervals")
-t <- 1:input_data$N
-polygon(c(rev(t), t), c(rev(ci90[,1]), ci90[,2]), col = colors$c_light, border = FALSE)
+t <- md_half$Distance
+polygon(c(rev(t), t), c(rev(ci95[,1]), ci95[,2]), col = colors$c_light, border = FALSE)
 polygon(c(rev(t), t), c(rev(ci50[,1]), ci50[,2]), col = colors$c_mid, border = FALSE)
-t <- which(input_data$texting==2)
-polygon(c(rev(t), t), c(rev(ci90[t,1]), ci90[t,2]), col = colors$d_light, border = FALSE)
-polygon(c(rev(t), t), c(rev(ci50[t,1]), ci50[t,2]), col = colors$d_mid, border = FALSE)
-legend("bottomright", c("No stimulus", "Texting"),
-       col = c(colors$c_mid, colors$d_mid),
-       lwd = c(2,2,2), text.font=0.5)
+t <- md_half$Distance[which(input_data$texting==2)]
+i <- which(input_data$texting==2)
+polygon(c(rev(t), t), c(rev(ci95[i,1]), ci95[i,2]), col = colors$d_light, border = FALSE)
+polygon(c(rev(t), t), c(rev(ci50[i,1]), ci50[i,2]), col = colors$d_mid, border = FALSE)
+legend("bottomright", c("No stimulus", "Texting"), col = c(colors$c_mid, colors$d_mid), lwd = c(2,2,2), text.font=0.5)
 ```
 
 ```{r test_5_iters}
@@ -286,8 +285,7 @@ if (sum(warning_code) != 0) {
 ```
 
 ```{r sbc}
-png(filename=here("src", "presentation", "graphics", "prior", "ar1_texting_sbc_shrink.png"),
-    width=800, height=600)
+png(filename=here("src", "presentation", "graphics", "prior", "ar1_texting_sbc_shrink.png"), width=800, height=600)
 par(mfrow=c(2, 4))
 sbc_rank <- ensemble_output[2,]
 sbc_hist <- hist(sbc_rank, seq(0, 500, 25) - 0.5, plot=FALSE)
@@ -364,8 +362,75 @@ dev.off()
 # 6. Fit observations and evaluate
 ```{r actual_fit}
 fit <- stan(file=here('src', 'stan', 'ar1_texting.stan'), data=input_data, seed=4938483, refresh=2000)
+saveRDS(fit, file=here('etc', 'fits', 'ar1_texting_stan_fit.RData'))
 pairs(fit, pars=c("alpha", "sigma", "rho", "delta_texting"))
 plot(fit, pars=c("alpha", "sigma", "rho", "delta_texting"))
 ```
 
-# 7. Analyze posterior predictive distribution
+# 7. Posterior Predictive Check
+
+```{r}
+y <- input_data$y
+library(shinystan)
+my_sso <- shinystan::launch_shinystan(fit)
+```
+
+```{r ppc_time_series}
+post <- as.matrix(fit)
+sel <- grep("y_ppc", colnames(post))
+# compute the credible intervals
+ci50 <- matrix(NA, nrow = length(sel), ncol = 2)
+ci95 <- matrix(NA, nrow = length(sel), ncol = 2)
+for (i in 1:length(sel)) {
+  ci50[i,] <- quantile(post[,sel[i]], prob = c(0.25, 0.75), names = FALSE)
+  ci95[i,] <- quantile(post[,sel[i]], prob = c(0.025, 0.975), names = FALSE)
+}
+
+plot(0, type= "n", 
+     xlim = c(0, max(md_half$Distance)), ylim = range(post[, sel]),
+     xlab = "Distance", ylab = "Lane Offset", main = "AR(1) Model - Texting driving")
+t <- md_half$Distance
+polygon(c(rev(t), t), c(rev(ci95[,1]), ci95[,2]), col = colors$c_light, border = FALSE)
+polygon(c(rev(t), t), c(rev(ci50[,1]), ci50[,2]), col = colors$c_mid, border = FALSE)
+t <- md_half$Distance[which(input_data$texting==2)]
+i <- which(input_data$texting==2)
+polygon(c(rev(t), t), c(rev(ci95[i,1]), ci95[i,2]), col = colors$d_light, border = FALSE)
+polygon(c(rev(t), t), c(rev(ci50[i,1]), ci50[i,2]), col = colors$d_mid, border = FALSE)
+lines(md_half$Distance, colMeans(post[,sel]), col = "hotpink", lwd = 3)
+# plot true series
+lines(md_half$Distance, input_data$y, col = "#0c120c", lwd = 2)
+legend("bottomright", c("actual", "pred (avg)", "Normal", "Texting"),
+       col = c("#0c120c", "hotpink", colors$c_mid, colors$d_mid),
+       lwd = c(2,2,2), text.font=0.5)
+```
+
+```{r 1.1.7a}
+B <- 23
+obs_acf <- acf(input_data$y, plot=FALSE)$acf
+
+idx <- rep(1:B, each=2)
+x <- sapply(1:length(idx), function(b) if(b %% 2 == 0) idx[b] + 0.5 else idx[b] - 0.5)
+pad_obs <- do.call(cbind, lapply(idx, function(n) obs_acf[n]))
+params <- extract(fit)
+counts <- sapply(1:4000, function(n) acf(params$y_ppc[n,], plot=FALSE)$acf)
+probs <- c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
+cred <- sapply(1:B, function(b) quantile(counts[b, ], probs=probs))
+pad_cred <- do.call(cbind, lapply(idx, function(n) cred[1:9, n]))
+
+plot(1, type="n", main="Posterior Predictive Correlogram",
+     xlim=c(0.5, B + 0.5), xlab="Lag", ylim=c(0, max(cred[9,])), ylab="")
+ 
+polygon(c(x, rev(x)), c(pad_cred[1,], rev(pad_cred[9,])),
+        col = colors$c_light, border = NA)
+polygon(c(x, rev(x)), c(pad_cred[2,], rev(pad_cred[8,])),
+        col = colors$c_light_highlight, border = NA)
+polygon(c(x, rev(x)), c(pad_cred[3,], rev(pad_cred[7,])),
+        col = colors$c_mid, border = NA)
+polygon(c(x, rev(x)), c(pad_cred[4,], rev(pad_cred[6,])),
+        col = colors$c_mid_highlight, border = NA)
+lines(x, pad_cred[5,], col=colors$c_dark, lwd=2)
+
+lines(x, pad_obs, col="white", lty=1, lw=2.5)
+lines(x, pad_obs, col="black", lty=1, lw=2)
+```
+

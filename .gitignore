@@ -3,9 +3,7 @@
 *.html
 *$*.xls*
 *$*.pptx*
-*.RData
 
-.RData
 .Rhistory
 .Rproj.user
 
