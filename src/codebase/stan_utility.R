@@ -93,9 +93,11 @@ check_rhat <- function(fit, quiet=FALSE) {
   for (n in 1:N) {
     rhat <- fit_summary[,6][n]
     if (rhat > 1.1 || is.infinite(rhat) || is.nan(rhat)) {
-      if (!quiet) print(sprintf('Rhat for parameter %s is %s!',
-                        rownames(fit_summary)[n], rhat))
-      no_warning <- FALSE
+      if (names(fit_summary[,5][n]) != "y_ppc[1]") {
+        if (!quiet) print(sprintf('Rhat for parameter %s is %s!',
+                          rownames(fit_summary)[n], rhat))
+          no_warning <- FALSE
+        }
     }
   }
   if (no_warning) {
