@@ -250,6 +250,10 @@ rm(subject, nd_eye, md_eye, nd_single, md_single)
 **Modelling only first half**
 
 Sample ACF
+```{r save_all_data}
+md_half_all <- df_1 %>% dplyr::filter(Drive=="MD")
+saveRDS(md_half_all, file=here('md_lane_all.RData'))
+```
 
 ```{r, fig.height=3}
 subject <- "T021"

@@ -1,5 +1,5 @@
 ---
-title: "Univariate AR model with texting"
+title: "AR model with texting"
 output: html_notebook
 ---
 
@@ -21,12 +21,6 @@ util <- new.env()
 source(here('src', 'codebase', 'stan_utility.R'), local=util)
 rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
-
-load(here('md_lane.RData'))
-input_data <- list("y" = md_half$LaneOffset,
-                   "texting" = as.integer(md_half$Stimulus),
-                   "N" = length(md_half$Lane.Position),
-                   "N_texting" = length(unique(as.integer(md_half$Stimulus))))
 colors <- list(c_light=c("#DCBCBC"), c_light_highlight=c("#C79999"),
                c_mid=c("#B97C7C"),   c_mid_highlight=c("#A25050"),
                c_dark=c("#8F2727"),  c_dark_highlight=c("#7C0000"),
@@ -35,7 +29,14 @@ colors <- list(c_light=c("#DCBCBC"), c_light_highlight=c("#C79999"),
                d_dark=c("#27278F"),  d_dark_highlight=c("#00007c"))
 ```
 
+
+# Univariate
 ```{r data_plot}
+load(here('md_lane.RData'))
+input_data <- list("y" = md_half$LaneOffset,
+                   "texting" = as.integer(md_half$Stimulus),
+                   "N" = length(md_half$Lane.Position),
+                   "N_texting" = length(unique(as.integer(md_half$Stimulus))))
 ggplot(md_half, aes(Distance, LaneOffset)) +
     geom_line() +
     geom_point(aes(colour=Stimulus), size=1.5) +
@@ -49,19 +50,18 @@ ggplot(md_half, aes(Distance, LaneOffset)) +
     scale_color_manual(labels=c("No Distraction", "Texting"),
                        values=c(colors$c_mid_highlight, colors$d_mid_highlight))
 ```
-
-# 1. Conceptual Analysis
+## 1. Conceptual Analysis
 Auto-regressive model 
 
-# 2. Define observations
+## 2. Define observations
 ```{r obs}
 writeLines(readLines(here("src", "stan", "ar1_texting.stan"), n=6))
 ```
 
-# 3. Summary statistics
+## 3. Summary statistics
 Correlogram of variances, histogram of variance
 
-# 4. Build generative model
+## 4. Build generative model
 ```{r generative_model}
 writeLines(readLines(here("src", "stan", "gen_ar1_texting.stan")))
 ```
@@ -70,8 +70,7 @@ writeLines(readLines(here("src", "stan", "gen_ar1_texting.stan")))
 writeLines(readLines(here("src", "stan", "ar1_texting.stan")))
 ```
 
-# 5. Analyze generative ensemble
-
+## 5. Analyze generative ensemble
 ```{r generate_ensemble, results="hide"}
 R <- 1000;
 simu_data <- list("N" = input_data$N,
@@ -80,6 +79,7 @@ simu_data <- list("N" = input_data$N,
 fit <- stan(here("src", "stan", "gen_ar1_texting.stan"), 
             data=simu_data, iter=R, warmup=0, chains=1, refresh=R, seed=234987,
             algorithm="Fixed_param")
+saveRDS(fit, here('etc', 'fits', 'ar1_gen.RData'))
 simu_alphas         <- extract(fit)$alpha
 simu_rhos           <- extract(fit)$rho
 simu_sigmas         <- extract(fit)$sigma
@@ -96,10 +96,10 @@ probs <- c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
 post <- as.matrix(fit)
 sel <- grep("y_ppc", colnames(post))
 ci50 <- matrix(NA, nrow = length(sel), ncol = 2)
-ci95 <- matrix(NA, nrow = length(sel), ncol = 2)
+ci90 <- matrix(NA, nrow = length(sel), ncol = 2)
 for (i in 1:length(sel)) {
   ci50[i,] <- quantile(post[,sel[i]], prob = c(0.25, 0.75), names = FALSE)
-  ci95[i,] <- quantile(post[,sel[i]], prob = c(0.025, 0.975), names = FALSE)
+  ci90[i,] <- quantile(post[,sel[i]], prob = c(0.05, 0.95), names = FALSE)
 }
 
 plot(0, type= "n", 
@@ -107,11 +107,11 @@ plot(0, type= "n",
      xlab = "Distance", ylab = "Lane Offset (m)",
      main = "Prior Predictive Lane Offset\n50% and 90% intervals")
 t <- md_half$Distance
-polygon(c(rev(t), t), c(rev(ci95[,1]), ci95[,2]), col = colors$c_light, border = FALSE)
+polygon(c(rev(t), t), c(rev(ci90[,1]), ci90[,2]), col = colors$c_light, border = FALSE)
 polygon(c(rev(t), t), c(rev(ci50[,1]), ci50[,2]), col = colors$c_mid, border = FALSE)
 t <- md_half$Distance[which(input_data$texting==2)]
 i <- which(input_data$texting==2)
-polygon(c(rev(t), t), c(rev(ci95[i,1]), ci95[i,2]), col = colors$d_light, border = FALSE)
+polygon(c(rev(t), t), c(rev(ci90[i,1]), ci90[i,2]), col = colors$d_light, border = FALSE)
 polygon(c(rev(t), t), c(rev(ci50[i,1]), ci50[i,2]), col = colors$d_mid, border = FALSE)
 legend("bottomright", c("No stimulus", "Texting"), col = c(colors$c_mid, colors$d_mid), lwd = c(2,2,2), text.font=0.5)
 ```
@@ -359,16 +359,14 @@ par(mfrow = c(1, 1))
 dev.off()
 ```
 
-# 6. Fit observations and evaluate
+## 6. Fit observations and evaluate
 ```{r actual_fit}
 fit <- stan(file=here('src', 'stan', 'ar1_texting.stan'), data=input_data, seed=4938483, refresh=2000)
 saveRDS(fit, file=here('etc', 'fits', 'ar1_texting_stan_fit.RData'))
 pairs(fit, pars=c("alpha", "sigma", "rho", "delta_texting"))
 plot(fit, pars=c("alpha", "sigma", "rho", "delta_texting"))
 ```
-
-# 7. Posterior Predictive Check
-
+## 7. Posterior Predictive Check
 ```{r}
 y <- input_data$y
 library(shinystan)
@@ -404,7 +402,7 @@ legend("bottomright", c("actual", "pred (avg)", "Normal", "Texting"),
        lwd = c(2,2,2), text.font=0.5)
 ```
 
-```{r 1.1.7a}
+```{r ppc_correlogram}
 B <- 23
 obs_acf <- acf(input_data$y, plot=FALSE)$acf
 
@@ -419,18 +417,20 @@ pad_cred <- do.call(cbind, lapply(idx, function(n) cred[1:9, n]))
 
 plot(1, type="n", main="Posterior Predictive Correlogram",
      xlim=c(0.5, B + 0.5), xlab="Lag", ylim=c(0, max(cred[9,])), ylab="")
- 
-polygon(c(x, rev(x)), c(pad_cred[1,], rev(pad_cred[9,])),
-        col = colors$c_light, border = NA)
-polygon(c(x, rev(x)), c(pad_cred[2,], rev(pad_cred[8,])),
-        col = colors$c_light_highlight, border = NA)
-polygon(c(x, rev(x)), c(pad_cred[3,], rev(pad_cred[7,])),
-        col = colors$c_mid, border = NA)
-polygon(c(x, rev(x)), c(pad_cred[4,], rev(pad_cred[6,])),
-        col = colors$c_mid_highlight, border = NA)
-lines(x, pad_cred[5,], col=colors$c_dark, lwd=2)
-
+polygon(c(x, rev(x)), c(pad_cred[1,], rev(pad_cred[9,])), col = colors$c_light, border = NA)
+polygon(c(x, rev(x)), c(pad_cred[2,], rev(pad_cred[8,])), col = colors$c_light_highlight, border = NA)
+polygon(c(x, rev(x)), c(pad_cred[3,], rev(pad_cred[7,])), col = colors$c_mid, border = NA)
+polygon(c(x, rev(x)), c(pad_cred[4,], rev(pad_cred[6,])), col = colors$c_mid_highlight, border = NA)
+lines(x, pad_cred[5,], col=colors$c_dark, lwd=2) 
 lines(x, pad_obs, col="white", lty=1, lw=2.5)
 lines(x, pad_obs, col="black", lty=1, lw=2)
+```
+
+# Multivariate
+
+## 6. Fit observations
+```{r}
+md_half_all <- readRDS(here('md_lane_all.RData'))
+input_data <- list()
 ```
 
