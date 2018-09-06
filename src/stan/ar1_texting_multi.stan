@@ -24,10 +24,10 @@ model {
   
   for (i in 1:N_drivers) {
     int n_start = N_time * (i - 1) + 1;
-    y[(n_start + 1):(n_start + N_time)] ~ normal(
-        alpha + rho * y[n_start:(n_start + N_time - 1)],
+    y[(n_start + 1):(n_start + N_time - 1)] ~ normal(
+        alpha + rho * y[n_start:(n_start + N_time - 2)],
         (sigma_base + sigma_driver[i])
       + (delta_texting + delta_texting_driver[i])
-      * (texting[(n_start + 1):(n_start + N_time)] - 1));
+      * (texting[(n_start + 1):(n_start + N_time - 1)] - 1));
   }
 }

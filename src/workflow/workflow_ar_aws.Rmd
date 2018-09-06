@@ -5,7 +5,7 @@ output: html_notebook
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE)
-knitr::opts_chunk$set(cahce = TRUE)
+knitr::opts_chunk$set(cache = TRUE)
 
 library(here)
 library(rstan)
@@ -28,7 +28,6 @@ colors <- list(c_light=c("#DCBCBC"), c_light_highlight=c("#C79999"),
                d_mid=c("#7C7CB9"),   d_mid_highlight=c("#5050A2"),
                d_dark=c("#27278F"),  d_dark_highlight=c("#00007c"))
 ```
-
 
 # Univariate
 ```{r data_plot}
@@ -428,9 +427,29 @@ lines(x, pad_obs, col="black", lty=1, lw=2)
 
 # Multivariate
 
+## 2. Define observations
+```{r}
+writeLines(readLines(here('src', 'stan', 'ar1_texting_multi.stan'), n=8))
+```
+
 ## 6. Fit observations
 ```{r}
 md_half_all <- readRDS(here('md_lane_all.RData'))
-input_data <- list()
+input_data <- list("N_drivers" = length(unique(md_half_all$Subject)),
+                   "N_time" = 200,
+                   "N" = 200 * length(unique(md_half_all$Subject)),
+                   "N_texting" = 2,
+                   "texting" = as.integer(md_half_all$Stimulus),
+                   "y" = md_half_all$LaneOffset)
+fit_multi <- stan(here('src', 'stan', 'ar1_texting_multi.stan'), data=input_data)
+saveRDS(fit_multi, file=here('etc', 'fits', 'ar1_texting_multi.RData'))
+```
+
+# Multivariate pooled
+
+## 6. Fit observations
+```{r}
+fit_pooled <- stan(here('src', 'stan', 'ar1_texting_multi_pooled.stan'), data=input_data)
+saveRDS(fit_pooled, file=here('etc', 'fits', 'ar1_texting_multi_pooled.RData'))
 ```
 
