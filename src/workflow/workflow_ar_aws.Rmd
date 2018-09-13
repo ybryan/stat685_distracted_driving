@@ -16,6 +16,9 @@ library(purrr)
 library(aws.s3)
 library(aws.ec2metadata)
 library(aws.signature)
+library(shinystan)
+library(bayesplot)
+library(stringr)
 
 util <- new.env()
 source(here('src', 'codebase', 'stan_utility.R'), local=util)
@@ -368,7 +371,6 @@ plot(fit, pars=c("alpha", "sigma", "rho", "delta_texting"))
 ## 7. Posterior Predictive Check
 ```{r}
 y <- input_data$y
-library(shinystan)
 my_sso <- shinystan::launch_shinystan(fit)
 ```
 
@@ -432,24 +434,114 @@ lines(x, pad_obs, col="black", lty=1, lw=2)
 writeLines(readLines(here('src', 'stan', 'ar1_texting_multi.stan'), n=8))
 ```
 
+## 3. Summary statistics
+```{r prelim_analysis}
+subject_df <- md_half_all %>% 
+  group_by(Subject, gender, age_group, tai, type_ab) %>% 
+  summarize(sd = sd(LaneOffset)) %>%
+  select(Subject, gender, age_group, tai, type_ab)
+agg_data <- md_half_all %>% group_by(Subject) %>% 
+  summarize(sd = sd(LaneOffset)) %>%
+  left_join(subject_df, by="Subject")
+agg_data_stim <- md_half_all %>% group_by(Subject, Stimulus) %>% 
+  summarize(sd = sd(LaneOffset)) %>%
+  left_join(subject_df, by="Subject")
+ggplot(agg_data, aes(type_ab, sd)) + geom_point()
+ggplot(agg_data, aes(tai, sd)) + geom_point()
+ggplot(agg_data_stim, aes(gender, sd)) + geom_violin() + facet_grid(. ~ Stimulus)
+ggplot(agg_data_stim, aes(age_group, sd)) + geom_violin() + facet_grid(. ~ Stimulus)
+```
+
 ## 6. Fit observations
-```{r}
+```{r multi_fit}
 md_half_all <- readRDS(here('md_lane_all.RData'))
 input_data <- list("N_drivers" = length(unique(md_half_all$Subject)),
+                   "N_age" = length(unique(md_half_all$age_group)),
                    "N_time" = 200,
                    "N" = 200 * length(unique(md_half_all$Subject)),
                    "N_texting" = 2,
                    "texting" = as.integer(md_half_all$Stimulus),
+                   "age" = as.integer(as.factor(subject_df$age_group)),
                    "y" = md_half_all$LaneOffset)
 fit_multi <- stan(here('src', 'stan', 'ar1_texting_multi.stan'), data=input_data)
+fit_multi_age <- stan(here('src', 'stan', 'ar1_texting_multi_age.stan'), data=input_data)
 saveRDS(fit_multi, file=here('etc', 'fits', 'ar1_texting_multi.RData'))
+saveRDS(fit_multi_age, file=here('etc', 'fits', 'ar1_texting_age.Rdata'))
+```
+
+```{r multi_eval, eval=FALSE}
+plot(fit_multi_age, pars=c("sigma_base", "delta_base"))
+posterior_multi <- as.matrix(fit_multi_age)
+plot_title <- ggtitle("Posterior distributions",
+                      "with medians and 80% intervals")
+mcmc_areas(posterior_multi, 
+           pars = c("sigma_base[1]", "sigma_base[2]",
+                    "delta_base[1]", "delta_base[2]"), 
+           prob = 0.8) + plot_title
 ```
 
 # Multivariate pooled
 
 ## 6. Fit observations
-```{r}
+```{r, results="hide"}
 fit_pooled <- stan(here('src', 'stan', 'ar1_texting_multi_pooled.stan'), data=input_data)
 saveRDS(fit_pooled, file=here('etc', 'fits', 'ar1_texting_multi_pooled.RData'))
 ```
 
+```{r}
+posterior_pooled <- as.matrix(fit_pooled)
+plot_title <- ggtitle("Posterior distributions",
+                      "with medians and 80% intervals")
+mcmc_areas(posterior_pooled, 
+           pars = c("sigma_base", "delta_base"), 
+           prob = 0.8) + plot_title
+```
+
+# Multivariate PPC
+
+## Pooled vs regularized
+```{r, sigma_driver}
+drivers_old <- which(subject_df$age_group == "Old")
+drivers_new <- which(subject_df$age_group == "Young")
+
+par_interest <- "sigma_driver"
+par_names <- sprintf("%s[%d]", par_interest, drivers_new)
+
+pars_sigma_driver <- dimnames(fit_multi)$parameters[
+  str_detect(dimnames(fit_multi)$parameters, pars_select)]
+par_names <- dimnames(fit_multi)$parameters[dimnames(fit_multi)$parameters %in% pars_select]
+
+mcmc_intervals(posterior_multi, pars=pars_sigma_driver) + ggtitle("Multi")
+mcmc_intervals(posterior_pooled, pars=par_names) + ggtitle("Pooled")
+```
+
+```{r, message=FALSE}
+drivers_old <- which(subject_df$age_group == "Old")
+drivers_new <- which(subject_df$age_group == "Young")
+
+par_interest <- "delta_texting_driver"
+par_names <- sprintf("%s[%d]", par_interest, drivers_old)
+dimnames(posterior_pooled)$parameters[
+  dimnames(posterior_pooled)$parameters %in% par_names] <- subject_df$Subject[subject_df$age_group == "Old"] 
+mcmc_intervals(posterior_pooled,
+               pars=subject_df$Subject[subject_df$age_group == "Old"]) +
+  ggtitle("Old drivers: Texting effect") + xlim(-0.1, 0.9)
+
+par_names <- sprintf("%s[%d]", par_interest, drivers_new)
+par_select <- dimnames(fit_multi)$parameters[dimnames(fit_multi)$parameters %in% par_names]
+dimnames(posterior_pooled)$parameters[
+  dimnames(posterior_pooled)$parameters %in% par_names] <- subject_df$Subject[subject_df$age_group == "Young"] 
+mcmc_intervals(posterior_pooled,
+               pars=subject_df$Subject[subject_df$age_group == "Young"]) +
+  ggtitle("Young drivers: Texting effect") + xlim(-0.1, 0.9)
+
+```
+
+## Posterior Predictive Check
+```{r}
+multi_ppcs <- extract(fit_multi, pars = c("sigma_texting", "sigma_non_texting"))
+pooled_ppcs <- extract(fit_pooled, pars = c("sigma_texting", "sigma_non_texting"))
+
+md_half_all %>% group_by(Subject, gender, age_group, tai, type_ab) %>% 
+  summarize(sd = sd(LaneOffset))
+```
