@@ -35,7 +35,7 @@ colors <- list(c_light=c("#DCBCBC"), c_light_highlight=c("#C79999"),
                d_dark=c("#27278F"),  d_dark_highlight=c("#00007c"))
 ```
 
-# Data prep
+## Data prep
 ```{r init_data}
 subject <- here::here("data") %>% 
   dir() %>% 
@@ -96,7 +96,6 @@ feather::write_feather(subject_df, here::here("etc", "cleaner_data", "subject_df
 rm(subject_bio, psych_df, subject, df)
 rm(file_paths, index_data, drive_map)
 ```
-
 ```{r graph_all}
 rect <- data.frame(xmin=5000, xmax=Inf, ymin=-Inf, ymax=Inf)
 all_plot <- ggplot(df_md, aes(Distance, Lane.Position)) + 
@@ -120,7 +119,6 @@ ggsave(filename=here::here('etc', 'plots', '01_all.png'),
        width=8, height=6)
 rm(rect, all_plot)
 ```
-
 ```{r md_half_data}
 df_md <- feather::read_feather(here::here('etc', 'cleaner_data', 'df_select.feather'))
 df_md_half1 <- df_md %>% 
@@ -172,7 +170,6 @@ saveRDS(df_md_t021_half1,
 rm(acf_md, acf_md_df, ciline, md_acf, conf.level)
 rm(df_md_half1, df_md_t021_half1)
 ```
-
 ```{r data_plot}
 md_half <- readRDS(here('etc', 'cleaner_data', 'md_half_t021.RData'))
 ggplot(md_half, aes(Distance, LaneOffset)) +
@@ -633,7 +630,7 @@ lines(x, pad_obs, col="black", lty=1, lw=2)
 rm(B, idx, x, pad_obs, params, counts, probs, cred, pad_cred, obs_acf)
 ```
 
-# Multivariate
+# Multivariate drivers
 
 ## 2. Define observations
 ```{r}
@@ -696,7 +693,7 @@ mcmc_areas(posterior_multi,
 rm(fit_multi, posterior_multi, plot_title)
 ```
 
-# Multivariate pooled
+# Multivariate drivers - pooled
 
 ## 6. Fit observations
 ```{r, results="hide"}
@@ -718,7 +715,7 @@ mcmc_areas(posterior_pooled,
 rm(plot_title)
 ```
 
-# Age groups
+## Age groups
 ```{r, message=FALSE}
 fit_pooled <- readRDS(
   file=here('etc', 'fits', 'ar1_texting_multi_pooled.RData')) 
@@ -755,4 +752,4 @@ md_half_all %>% group_by(Subject, gender, age_group, tai, type_ab) %>%
   summarize(sd = sd(LaneOffset))
 ```
 
-k
+# Mulivariate with age groups
