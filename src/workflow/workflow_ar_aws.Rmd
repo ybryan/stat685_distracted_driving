@@ -114,7 +114,7 @@ all_plot <- ggplot(df_md, aes(Distance, Lane.Position)) +
              angle=90, color="Red",  size=4, hjust=0) +
     annotate("text", x=1750, y=6.25, label="Model Focus",
              size=5, hjust=0, color="blue") 
-
+all_plot
 ggsave(filename=here::here('etc', 'plots', '01_all.png'),
        plot = all_plot,
        width=8, height=6)
@@ -137,20 +137,22 @@ df_md_half1 <- df_md %>%
   dplyr::mutate(mrank=dplyr::row_number()) %>% 
   dplyr::filter(mrank==1) %>%
   dplyr::select(-mrank) %>%  dplyr::ungroup()
-
 saveRDS(df_md_half1, file=here::here('etc', 'cleaner_data', 'md_half_df.RData'))
 rm(df_md, df_md_half1)
 ```
 
 # Univariate
 ```{r graph_md_acf}
-df_md_half1 <- readRDS(file=here::here('etc', 'cleaner_data', 'md_half_df.RData'))
+df_md_half1 <- readRDS(file=here::here(
+  'etc', 'cleaner_data', 'md_half_df.RData'))
 df_md_t021_half1 <- df_md_half1 %>% dplyr::filter(Subject=="T021")
 
 conf.level <- 0.95
 acf_md <- acf(df_md_t021_half1$Lane.Position, plot=FALSE)
 acf_md_df <- with(acf_md, data.frame(lag, acf))
-ciline <- qnorm((1 - conf.level)/2)/sqrt(length(df_md_t021_half1$Lane.Position))
+ciline <- qnorm((1 - conf.level)/2)/sqrt(
+  length(df_md_t021_half1$Lane.Position))
+
 md_acf <- ggplot(acf_md_df, aes(lag, acf)) +
     geom_segment(aes(xend=lag, yend=0)) +
     geom_hline(aes(yintercept=0)) + 
@@ -161,10 +163,12 @@ md_acf <- ggplot(acf_md_df, aes(lag, acf)) +
     ggtitle("Texting Driving (T021 Driver)") +
     xlab("Lag") + 
     ylab("ACF")
+md_acf
 ggsave(filename=here::here('etc', 'plots', '02_acf.png'),
        plot = md_acf,
        width=8, height=6)
-saveRDS(df_md_t021_half1, file=here::here('etc', 'cleaner_data', 'md_half_t021.RData'))
+saveRDS(df_md_t021_half1,
+        file=here::here('etc', 'cleaner_data', 'md_half_t021.RData'))
 rm(acf_md, acf_md_df, ciline, md_acf, conf.level)
 rm(df_md_half1, df_md_t021_half1)
 ```
@@ -176,7 +180,8 @@ ggplot(md_half, aes(Distance, LaneOffset)) +
     geom_point(aes(colour=Stimulus), size=1.5) +
     theme_bw() + 
     theme(legend.position = "bottom",
-          legend.background = element_rect(fill="gray90", size=.5, linetype="dotted")) + 
+          legend.background = element_rect(
+            fill="gray90", size=.5, linetype="dotted")) + 
     ggtitle("Texting Driving (T021 Driver)") +
     xlab("Distance (m)") + 
     ylab("Lane Offset (m)") +
@@ -246,21 +251,31 @@ for (i in 1:length(sel)) {
   ci90[i,] <- quantile(post[,sel[i]], prob = c(0.05, 0.95), names = FALSE)
 }
 
+png(filename=here('etc', 'plots', '04_ar1_prior_predict.png'),
+    width=800, height=600)
 plot(0, type= "n", 
-     xlim = c(0,max(md_half$Distance)), ylim = c(-1, 1),
+     xlim = c(0,max(md_half$Distance)), ylim = c(-10, 10),
      xlab = "Distance", ylab = "Lane Offset (m)",
      main = "Prior Predictive Lane Offset\n50% and 90% intervals")
 t <- md_half$Distance
-polygon(c(rev(t), t), c(rev(ci90[,1]), ci90[,2]), col = colors$c_light, border = FALSE)
-polygon(c(rev(t), t), c(rev(ci50[,1]), ci50[,2]), col = colors$c_mid, border = FALSE)
+polygon(c(rev(t), t), c(rev(ci90[,1]), ci90[,2]),
+        col = colors$c_light, border = FALSE)
+polygon(c(rev(t), t), c(rev(ci50[,1]), ci50[,2]),
+        col = colors$c_mid, border = FALSE)
 t <- md_half$Distance[which(input_data$texting==2)]
 i <- which(input_data$texting==2)
-polygon(c(rev(t), t), c(rev(ci90[i,1]), ci90[i,2]), col = colors$d_light, border = FALSE)
-polygon(c(rev(t), t), c(rev(ci50[i,1]), ci50[i,2]), col = colors$d_mid, border = FALSE)
-legend("bottomright", c("No stimulus", "Texting"), col = c(colors$c_mid, colors$d_mid), lwd = c(2,2,2), text.font=0.5)
+polygon(c(rev(t), t), c(rev(ci90[i,1]), ci90[i,2]),
+        col = colors$d_light, border = FALSE)
+polygon(c(rev(t), t), c(rev(ci50[i,1]), ci50[i,2]),
+        col = colors$d_mid, border = FALSE)
+legend("bottomright", c("No stimulus", "Texting"),
+       col = c(colors$c_mid, colors$d_mid), lwd = c(2,2,2), text.font=0.5)
+rm(t, i, ci50, ci90, probs, sel)
+dev.off()
+rm(fit)
 ```
 
-```{r test_5_iters}
+```{r test_5_iters, eval=}
 r <- 1
 simu_alpha         <- simu_alphas[r]
 simu_sigma         <- simu_sigmas[r]
@@ -331,6 +346,7 @@ print(c("warning_code",
         "sbc_rank_sigma", "z_score_sigma", "shrinkage_sigma",
         "sbc_rank_delta_texting", "z_score_delta_texting", "shrinkage_delta_texting"))
 print(output)
+rm(fit)
 ```
 
 ```{r create_zips, echo=FALSE, results="hide"}
@@ -409,6 +425,8 @@ system(paste("aws s3 cp s3://stat685-batch/results/", stan_file, "/ ", result_di
 ```{r}
 library(foreach)
 library(doParallel)
+result_dir <- here("etc", "results", stan_file)
+stan_file <- 'ar1_texting.stan'
 registerDoParallel(makeCluster(detectCores()))
 output_list <- dir(paste(result_dir, "/", hash, sep=""))
 ensemble_output <- foreach(output=output_list, .combine='cbind') %dopar% {
@@ -426,10 +444,14 @@ if (sum(warning_code) != 0) {
 } else {
   print ("No posterior fits in the generative ensemble encountered problems!")
 }
+rm(percentage, warning_code)
 ```
 
 ```{r sbc}
-png(filename=here("src", "presentation", "graphics", "prior", "ar1_texting_sbc_shrink.png"), width=800, height=600)
+png(filename=here(
+  "etc", "plots", "ar1_texting_sbc_shrink.png"), 
+  width=800, height=600)
+
 par(mfrow=c(2, 4))
 sbc_rank <- ensemble_output[2,]
 sbc_hist <- hist(sbc_rank, seq(0, 500, 25) - 0.5, plot=FALSE)
@@ -482,34 +504,56 @@ plot(sbc_hist, col=colors$c_dark, border=colors$c_dark_highlight, add=T)
 # alpha
 z_score <- ensemble_output[3,]
 shrinkage <- ensemble_output[4,]
-plot(shrinkage, z_score, col=c("#8F272720"), lwd=2, pch=16, cex=0.8, main="alpha",
-     xlim=c(0, 1), xlab="Posterior Shrinkage", ylim=c(0, 5), ylab="Posterior z-Score")
+plot(shrinkage, z_score, col=c("#8F272720"), lwd=2, pch=16, cex=0.8, 
+     main="alpha", xlim=c(0, 1), xlab="Posterior Shrinkage",
+     ylim=c(0, 5), ylab="Posterior z-Score")
+
 # rho
 z_score <- ensemble_output[6,]
 shrinkage <- ensemble_output[7,]
-plot(shrinkage, z_score, col=c("#8F272720"), lwd=2, pch=16, cex=0.8, main="sigma",
-     xlim=c(0, 1), xlab="Posterior Shrinkage", ylim=c(0, 5), ylab="Posterior z-Score")
+plot(shrinkage, z_score, col=c("#8F272720"), lwd=2, pch=16, cex=0.8, 
+     main="sigma", xlim=c(0, 1), xlab="Posterior Shrinkage",
+     ylim=c(0, 5), ylab="Posterior z-Score")
+
 # sigma
 z_score <- ensemble_output[9,]
 shrinkage <- ensemble_output[10,]
-plot(shrinkage, z_score, col=c("#8F272720"), lwd=2, pch=16, cex=0.8, main="rho",
-     xlim=c(0, 1), xlab="Posterior Shrinkage", ylim=c(0, 5), ylab="Posterior z-Score")
+plot(shrinkage, z_score, col=c("#8F272720"), lwd=2, pch=16, cex=0.8, 
+     main="rho", xlim=c(0, 1), xlab="Posterior Shrinkage", 
+     ylim=c(0, 5), ylab="Posterior z-Score")
+
 # delta_texting
 z_score <- ensemble_output[12,]
 shrinkage <- ensemble_output[13,]
-plot(shrinkage, z_score, col=c("#8F272720"), lwd=2, pch=16, cex=0.8, main="Delta",
-     xlim=c(0, 1), xlab="Posterior Shrinkage", ylim=c(0, 5), ylab="Posterior z-Score")
+plot(shrinkage, z_score, col=c("#8F272720"), lwd=2, pch=16, cex=0.8, 
+     main="Delta", xlim=c(0, 1), xlab="Posterior Shrinkage",
+     ylim=c(0, 5), ylab="Posterior z-Score")
+
 par(mfrow = c(1, 1))
 dev.off()
+rm(bar_x, bar_y, high, low, mid)
+rm(output_list, R, result_dir, ensemble_output)
+rm(sbc_rank, shrinkage, sbc_hist, post,
+   simu_alphas, simu_delta_textings, simu_rhos, simu_sigmas, z_score, simu_data,
+   simu_ys, post)
 ```
 
 ## 6. Fit observations and evaluate
 ```{r actual_fit}
-fit <- stan(file=here('src', 'stan', 'ar1_texting.stan'), data=input_data, seed=4938483, refresh=2000)
+fit <- stan(file=here('src', 'stan', 'ar1_texting.stan'),
+            data=input_data, seed=4938483, refresh=2000)
 saveRDS(fit, file=here('etc', 'fits', 'ar1_texting_stan_fit.RData'))
-pairs(fit, pars=c("alpha", "sigma", "rho", "delta_texting"))
-plot(fit, pars=c("alpha", "sigma", "rho", "delta_texting"))
 ```
+
+```{r ar1_fit}
+fit <- readRDS(here('etc', 'fits', 'ar1_texting_stan_fit.RData'))
+posterior <- extract(fit, inc_warmup = TRUE, permuted = FALSE)
+p <- mcmc_trace(posterior, pars = c("alpha", "sigma", "rho", "delta_texting"),
+                n_warmup=200)
+plot(fit, pars=c("alpha", "sigma", "rho", "delta_texting"))
+rm(posterior, p)
+```
+
 ## 7. Posterior Predictive Check
 ```{r}
 y <- input_data$y
@@ -517,6 +561,12 @@ my_sso <- shinystan::launch_shinystan(fit)
 ```
 
 ```{r ppc_time_series}
+md_half <- readRDS(here('etc', 'cleaner_data', 'md_half_t021.RData'))
+fit <- readRDS(here('etc', 'fits', 'ar1_texting_stan_fit.RData'))
+input_data <- list("y" = md_half$LaneOffset,
+                   "texting" = as.integer(md_half$Stimulus),
+                   "N" = length(md_half$Lane.Position),
+                   "N_texting" = length(unique(as.integer(md_half$Stimulus))))
 post <- as.matrix(fit)
 sel <- grep("y_ppc", colnames(post))
 # compute the credible intervals
@@ -529,20 +579,28 @@ for (i in 1:length(sel)) {
 
 plot(0, type= "n", 
      xlim = c(0, max(md_half$Distance)), ylim = range(post[, sel]),
-     xlab = "Distance", ylab = "Lane Offset", main = "AR(1) Model - Texting driving")
+     xlab = "Distance", ylab = "Lane Offset",
+     main = "AR(1) Model - Texting driving")
 t <- md_half$Distance
-polygon(c(rev(t), t), c(rev(ci95[,1]), ci95[,2]), col = colors$c_light, border = FALSE)
-polygon(c(rev(t), t), c(rev(ci50[,1]), ci50[,2]), col = colors$c_mid, border = FALSE)
+polygon(c(rev(t), t), c(rev(ci95[,1]), ci95[,2]),
+        col = colors$c_light, border = FALSE)
+polygon(c(rev(t), t), c(rev(ci50[,1]), ci50[,2]),
+        col = colors$c_mid, border = FALSE)
 t <- md_half$Distance[which(input_data$texting==2)]
 i <- which(input_data$texting==2)
-polygon(c(rev(t), t), c(rev(ci95[i,1]), ci95[i,2]), col = colors$d_light, border = FALSE)
-polygon(c(rev(t), t), c(rev(ci50[i,1]), ci50[i,2]), col = colors$d_mid, border = FALSE)
+polygon(c(rev(t), t), c(rev(ci95[i,1]), ci95[i,2]),
+        col = colors$d_light, border = FALSE)
+polygon(c(rev(t), t), c(rev(ci50[i,1]), ci50[i,2]),
+        col = colors$d_mid, border = FALSE)
 lines(md_half$Distance, colMeans(post[,sel]), col = "hotpink", lwd = 3)
+
 # plot true series
 lines(md_half$Distance, input_data$y, col = "#0c120c", lwd = 2)
 legend("bottomright", c("actual", "pred (avg)", "Normal", "Texting"),
        col = c("#0c120c", "hotpink", colors$c_mid, colors$d_mid),
        lwd = c(2,2,2), text.font=0.5)
+rm(i, t, sel, ci50, ci95)
+rm(fit, post)
 ```
 
 ```{r ppc_correlogram}
@@ -550,7 +608,8 @@ B <- 23
 obs_acf <- acf(input_data$y, plot=FALSE)$acf
 
 idx <- rep(1:B, each=2)
-x <- sapply(1:length(idx), function(b) if(b %% 2 == 0) idx[b] + 0.5 else idx[b] - 0.5)
+x <- sapply(1:length(idx),
+            function(b) if(b %% 2 == 0) idx[b] + 0.5 else idx[b] - 0.5)
 pad_obs <- do.call(cbind, lapply(idx, function(n) obs_acf[n]))
 params <- extract(fit)
 counts <- sapply(1:4000, function(n) acf(params$y_ppc[n,], plot=FALSE)$acf)
@@ -560,13 +619,18 @@ pad_cred <- do.call(cbind, lapply(idx, function(n) cred[1:9, n]))
 
 plot(1, type="n", main="Posterior Predictive Correlogram",
      xlim=c(0.5, B + 0.5), xlab="Lag", ylim=c(0, max(cred[9,])), ylab="")
-polygon(c(x, rev(x)), c(pad_cred[1,], rev(pad_cred[9,])), col = colors$c_light, border = NA)
-polygon(c(x, rev(x)), c(pad_cred[2,], rev(pad_cred[8,])), col = colors$c_light_highlight, border = NA)
-polygon(c(x, rev(x)), c(pad_cred[3,], rev(pad_cred[7,])), col = colors$c_mid, border = NA)
-polygon(c(x, rev(x)), c(pad_cred[4,], rev(pad_cred[6,])), col = colors$c_mid_highlight, border = NA)
+polygon(c(x, rev(x)), c(pad_cred[1,], rev(pad_cred[9,])),
+        col = colors$c_light, border = NA)
+polygon(c(x, rev(x)), c(pad_cred[2,], rev(pad_cred[8,])),
+        col = colors$c_light_highlight, border = NA)
+polygon(c(x, rev(x)), c(pad_cred[3,], rev(pad_cred[7,])),
+        col = colors$c_mid, border = NA)
+polygon(c(x, rev(x)), c(pad_cred[4,], rev(pad_cred[6,])),
+        col = colors$c_mid_highlight, border = NA)
 lines(x, pad_cred[5,], col=colors$c_dark, lwd=2) 
 lines(x, pad_obs, col="white", lty=1, lw=2.5)
 lines(x, pad_obs, col="black", lty=1, lw=2)
+rm(B, idx, x, pad_obs, params, counts, probs, cred, pad_cred, obs_acf)
 ```
 
 # Multivariate
@@ -578,7 +642,7 @@ writeLines(readLines(here('src', 'stan', 'ar1_texting_multi.stan'), n=8))
 
 ## 3. Summary statistics
 ```{r prelim_analysis}
-md_half_all <- readRDS(here('md_lane_all.RData'))
+md_half_all <- readRDS(here('etc', 'cleaner_data', 'md_half_df.RData'))
 subject_df <- md_half_all %>% 
   group_by(Subject, gender, age_group, tai, type_ab) %>% 
   summarize(sd = sd(LaneOffset)) %>%
@@ -600,69 +664,65 @@ agg_data_stim <- md_half_all %>% group_by(Subject, Stimulus) %>%
   left_join(subject_df, by="Subject")
 
 levels(agg_data_stim$Stimulus) <- c("Normal", "Texting")
-p1 <- ggplot(agg_data, aes(type_ab, sd)) + geom_point()
-p2 <- ggplot(agg_data, aes(tai, sd)) + geom_point()
-p3 <- ggplot(agg_data_stim, aes(gender, sd)) + geom_violin() + facet_grid(. ~ Stimulus)
-p4 <- ggplot(agg_data_stim, aes(age_group, sd)) + geom_violin() + facet_grid(. ~ Stimulus)
+p1 <- ggplot(agg_data, aes(type_ab, sd)) + geom_point() +
+  xlab("Type AB")
+p2 <- ggplot(agg_data, aes(tai, sd)) + geom_point() +
+  xlab("Anxiety")
+p3 <- ggplot(agg_data_stim, aes(gender, sd)) + geom_violin() +
+  facet_grid(. ~ Stimulus)
+p4 <- ggplot(agg_data_stim, aes(age_group, sd)) + geom_violin() +
+  facet_grid(. ~ Stimulus)
 grid.arrange(p1, p2, p3, p4, nrow = 2)
 rm(p1, p2, p3, p4)
+rm(agg_data, agg_data_stim)
 ```
 
 ## 6. Fit observations
 ```{r multi_fit}
-fit_multi <- stan(here('src', 'stan', 'ar1_texting_multi.stan'), data=input_data)
+fit_multi <- stan(here('src', 'stan', 'ar1_texting_multi.stan'), 
+                  data=input_data)
 saveRDS(fit_multi, file=here('etc', 'fits', 'ar1_texting_multi.RData'))
 ```
 
 ```{r multi_eval, eval=FALSE}
-plot(fit_multi_age, pars=c("sigma_base", "delta_base"))
-posterior_multi <- as.matrix(fit_multi_age)
+fit_multi <- readRDS(file=here('etc', 'fits', 'ar1_texting_multi.RData'))
+plot(fit_multi, pars=c("sigma_base", "delta_texting"))
+posterior_multi <- as.matrix(fit_multi)
 plot_title <- ggtitle("Posterior distributions",
                       "with medians and 80% intervals")
 mcmc_areas(posterior_multi, 
-           pars = c("sigma_base[1]", "sigma_base[2]",
-                    "delta_base[1]", "delta_base[2]"), 
+           pars = c("sigma_base", "delta_texting"), 
            prob = 0.8) + plot_title
+rm(fit_multi, posterior_multi, plot_title)
 ```
 
 # Multivariate pooled
 
 ## 6. Fit observations
 ```{r, results="hide"}
-fit_pooled <- stan(here('src', 'stan', 'ar1_texting_multi_pooled.stan'), data=input_data)
-fit_pooled_age <- stan(here('src', 'stan', 'ar1_texting_multi_age_pooled.stan'), data=input_data)
-saveRDS(fit_pooled, file=here('etc', 'fits', 'ar1_texting_multi_pooled.RData'))
-saveRDS(fit_pooled_age, file=here('etc', 'fits', 'ar1_texting_multi_age_pooled.RData'))
+fit_pooled <- stan(here('src', 'stan', 'ar1_texting_multi_pooled.stan'),
+                   data=input_data)
+saveRDS(fit_pooled,
+        file=here('etc', 'fits', 'ar1_texting_multi_pooled.RData'))
 ```
 
 ```{r}
+fit_pooled <- readRDS(
+  file=here('etc', 'fits', 'ar1_texting_multi_pooled.RData')) 
 posterior_pooled <- as.matrix(fit_pooled)
 plot_title <- ggtitle("Posterior distributions",
                       "with medians and 80% intervals")
 mcmc_areas(posterior_pooled, 
            pars = c("sigma_base", "delta_base"), 
            prob = 0.8) + plot_title
+rm(plot_title)
 ```
 
-# Multivariate PPC
-
-## Pooled vs regularized
-```{r, sigma_driver}
-drivers_old <- which(subject_df$age_group == "Old")
-drivers_new <- which(subject_df$age_group == "Young")
-
-par_interest <- "sigma_driver"
-par_names <- sprintf("%s[%d]", par_interest, drivers_new)
-
-pars_sigma_driver <- dimnames(fit_multi)$parameters[
-  str_detect(dimnames(fit_multi)$parameters, pars_select)]
-par_names <- dimnames(fit_multi)$parameters[dimnames(fit_multi)$parameters %in% pars_select]
-
-mcmc_intervals(posterior_multi, pars=pars_sigma_driver) + ggtitle("Multi")
-mcmc_intervals(posterior_pooled, pars=par_names) + ggtitle("Pooled")
-```
-
+# Age groups
 ```{r, message=FALSE}
+fit_pooled <- readRDS(
+  file=here('etc', 'fits', 'ar1_texting_multi_pooled.RData')) 
+posterior_pooled <- as.matrix(fit_pooled)
 drivers_old <- which(subject_df$age_group == "Old")
 drivers_new <- which(subject_df$age_group == "Young")
 
@@ -682,6 +742,8 @@ p2 <- mcmc_intervals(posterior_pooled,
                pars=subject_df$Subject[subject_df$age_group == "Young"]) +
   ggtitle("Young drivers: Texting effect") + xlim(-0.1, 0.9)
 grid.arrange(p2, p1, nrow=1)
+rm(p1, p2, drivers_old, drivers_new, par_names, par_select, par_interest, 
+   posterior_pooled)
 ```
 
 ## Posterior Predictive Check
@@ -692,3 +754,5 @@ pooled_ppcs <- extract(fit_pooled, pars = c("sigma_texting", "sigma_non_texting"
 md_half_all %>% group_by(Subject, gender, age_group, tai, type_ab) %>% 
   summarize(sd = sd(LaneOffset))
 ```
+
+k
