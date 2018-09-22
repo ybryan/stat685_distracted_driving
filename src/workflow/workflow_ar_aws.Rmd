@@ -631,7 +631,6 @@ rm(B, idx, x, pad_obs, params, counts, probs, cred, pad_cred, obs_acf)
 ```
 
 # Multivariate drivers
-
 ## 2. Define observations
 ```{r}
 writeLines(readLines(here('src', 'stan', 'ar1_texting_multi.stan'), n=8))
@@ -694,7 +693,6 @@ rm(fit_multi, posterior_multi, plot_title)
 ```
 
 # Multivariate drivers - pooled
-
 ## 6. Fit observations
 ```{r, results="hide"}
 fit_pooled <- stan(here('src', 'stan', 'ar1_texting_multi_pooled.stan'),
@@ -743,13 +741,24 @@ rm(p1, p2, drivers_old, drivers_new, par_names, par_select, par_interest,
    posterior_pooled)
 ```
 
-## Posterior Predictive Check
-```{r}
-multi_ppcs <- extract(fit_multi, pars = c("sigma_texting", "sigma_non_texting"))
-pooled_ppcs <- extract(fit_pooled, pars = c("sigma_texting", "sigma_non_texting"))
-
-md_half_all %>% group_by(Subject, gender, age_group, tai, type_ab) %>% 
-  summarize(sd = sd(LaneOffset))
-```
-
 # Mulivariate with age groups
+```{r}
+md_half_all <- readRDS(here('etc', 'cleaner_data', 'md_half_df.RData'))
+subject_df <- md_half_all %>% 
+  group_by(Subject, gender, age_group, tai, type_ab) %>% 
+  summarize(sd = sd(LaneOffset)) %>%
+  select(Subject, gender, age_group, tai, type_ab)
+input_data <- list("N_drivers" = length(unique(md_half_all$Subject)),
+                   "N_age" = length(unique(md_half_all$age_group)),
+                   "N_time" = 200,
+                   "N" = 200 * length(unique(md_half_all$Subject)),
+                   "N_texting" = 2,
+                   "texting" = as.integer(md_half_all$Stimulus),
+                   "age" = as.integer(as.factor(subject_df$age_group)),
+                   "y" = md_half_all$LaneOffset)
+fit_age <- stan(here('src', 'stan', 'ar1_texting_age.stan'), 
+                  data=input_data, control = list(max_treedepth = 15))
+saveRDS(fit_age, file=here('etc', 'fits', 'ar1_texting_age.RData'))
+posterior_age <- as.matrix(fit_age)
+mcmc_areas(posterior_age, regex_pars = c("^sigma_texting"), prob=0.8)
+```
