@@ -40,9 +40,24 @@ model {
 generated quantities {
   vector [N_drivers] sigma_non_texting;
   vector [N_drivers] sigma_texting;
+  vector [N] y_ppc = y;
   
+  int n_start;
+  int n_end;
+    
   for (i in 1:N_drivers) {
     sigma_non_texting[i] = sigma_base + sigma_driver[i];
-    sigma_texting[i] = sigma_base + sigma_driver[i] + delta_base + delta_texting_driver[i];
+    sigma_texting[i]     = sigma_base + sigma_driver[i] 
+                           + delta_base + delta_texting_driver[i];
+                           
+    n_start = N_time * (i - 1) + 1;
+    n_end = N_time * i;
+    for (n in (n_start + 1):n_end)
+      y_ppc[n] = normal_rng(
+        alpha + rho * y_ppc[n - 1],
+        (sigma_base + sigma_driver[i])
+        + (delta_base + delta_texting_driver[i])
+        * (texting[n - 1]));
+              
   }
 }

@@ -38,6 +38,7 @@ model {
 generated quantities {
   real sigma_texting[N_age];
   real sigma_non_texting[N_age];
+  real y_ppc[N];
   
   for (i in 1:N_age) {
     sigma_texting[i] = sigma_base * exp(log_delta_sigma_age[i]
