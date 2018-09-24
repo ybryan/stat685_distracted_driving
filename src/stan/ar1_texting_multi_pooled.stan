@@ -52,12 +52,12 @@ generated quantities {
                            
     n_start = N_time * (i - 1) + 1;
     n_end = N_time * i;
-    for (n in (n_start + 1):n_end)
+    for (n in (n_start + 1):n_end) {
       y_ppc[n] = normal_rng(
         alpha + rho * y_ppc[n - 1],
         (sigma_base + sigma_driver[i])
         + (delta_base + delta_texting_driver[i])
         * (texting[n - 1]));
-              
+    }
   }
 }

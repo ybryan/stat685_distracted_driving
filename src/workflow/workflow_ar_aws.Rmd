@@ -701,8 +701,21 @@ rm(fit_multi, posterior_multi, plot_title)
 # Multivariate drivers - pooled
 ## 6. Fit observations
 ```{r, results="hide"}
+md_half_all <- readRDS(here('etc', 'cleaner_data', 'md_half_df.RData'))
+subject_df <- md_half_all %>% 
+  group_by(Subject, gender, age_group, tai, type_ab) %>% 
+  summarize(sd = sd(LaneOffset)) %>%
+  select(Subject, gender, age_group, tai, type_ab)
+input_data <- list("N_drivers" = length(unique(md_half_all$Subject)),
+                   "N_age" = length(unique(md_half_all$age_group)),
+                   "N_time" = 200,
+                   "N" = 200 * length(unique(md_half_all$Subject)),
+                   "N_texting" = 2,
+                   "texting" = as.integer(md_half_all$Stimulus),
+                   "age" = as.integer(as.factor(subject_df$age_group)),
+                   "y" = md_half_all$LaneOffset)
 fit_pooled <- stan(here('src', 'stan', 'ar1_texting_multi_pooled.stan'),
-                   data=input_data)
+                   data=input_data, seed=234987)
 saveRDS(fit_pooled,
         file=here('etc', 'fits', 'ar1_texting_multi_pooled.RData'))
 ```
