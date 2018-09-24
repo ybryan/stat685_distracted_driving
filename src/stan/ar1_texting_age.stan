@@ -38,11 +38,26 @@ model {
 generated quantities {
   real sigma_texting[N_age];
   real sigma_non_texting[N_age];
-  real y_ppc[N];
+  vector [N] y_ppc = y;
 
-  for (i in 1:N_age) {
-    sigma_texting[i] = sigma_base * exp(log_delta_sigma_age[i]
-                                        + log_delta_sigma_texting[i]);
-    sigma_non_texting[i] = sigma_base * exp(log_delta_sigma_age[i]);
+  int n_start;
+  int n_end;
+    
+  for (k in 1:N_age) {
+    sigma_texting[k] = sigma_base * exp(log_delta_sigma_age[k] 
+                                        + log_delta_sigma_texting[k]);
+    sigma_non_texting[k] = sigma_base * exp(log_delta_sigma_age[k]);
+  }
+  
+  for (j in 1:N_drivers) {
+    n_start = N_time * (j - 1) + 1;
+    n_end = N_time * j;
+    for (n in n_start:n_end) {
+      y_ppc[n] = normal_rng(
+        alpha + rho * y_ppc[n - 1],
+        (sigma_base * exp(log_delta_sigma_age[j]
+                          + (log_delta_sigma_texting[j])
+        * (texting[n - 1]))));
+    }
   }
 }
