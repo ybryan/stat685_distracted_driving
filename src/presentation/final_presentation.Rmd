@@ -5,7 +5,7 @@ author: "Bryan Yu | bryanyu@tamu.edu"
 date: "Summer 2018"
 output: 
     powerpoint_presentation:
-      reference_doc: template.potx
+      reference_doc: template_1.potx
 ---
 
 ```{r setup, include=FALSE}
@@ -20,17 +20,53 @@ library(bayesplot)
 library(knitr)
 library(rstan)
 library(kableExtra)
+library(stringr)
+library(gridExtra)
 options(mc.cores = parallel::detectCores())
 rstan_options(auto_write=TRUE)
 aws.signature::use_credentials(profile = "ybryan")
+
+util <- new.env()
+source(here('src', 'codebase', 'stan_utility.R'), local=util)
+colors <- list(c_light=c("#DCBCBC"), c_light_highlight=c("#C79999"),
+               c_mid=c("#B97C7C"),   c_mid_highlight=c("#A25050"),
+               c_dark=c("#8F2727"),  c_dark_highlight=c("#7C0000"),
+               d_light=c("#BCBCDC"), d_light_highlight=c("#9999C7"),
+               d_mid=c("#7C7CB9"),   d_mid_highlight=c("#5050A2"),
+               d_dark=c("#27278F"),  d_dark_highlight=c("#00007c"))
 ```
 
+## About me: *Bryan Yu*
+:::::::::::::: {.columns}
+::: {.column}
+
+![](/Users/bryanyu/Dropbox/STATS/STAT685/etc/pix/IMG_3644.png)
+
+:::
+::: {.column}
+
+○ Currently work in finance (data analyst/engineer) in Austin, TX
+
+○ Graduated from UT-Austin 2009, BS Aerospace Engineering
+
+○ Spent 4 years on the west coast but moved back to Texas in 2015
+
+○ Interests
+
+  - **Intellectual:** Econometrics
+  - **Personal:** Weightlifting and calisthenics 
+  - **Graduation Present:** Dog
+
+:::
+::::::::::::::
 ## Experiment
 :::::::::::::: {.columns}
 ::: {.column}
 - Controlled simulated driving experiment^[1](https://www.nature.com/articles/sdata2017110)^ to asses driving behavior
 
 - Multiple different stressors: cognitive, emotional, sensorimotor (texting)
+
+- Each driver (N=68) had 4 different drives to assess stressors including control
 
 - Sensors captured vehicle information and driver outputs
 
@@ -45,9 +81,12 @@ aws.signature::use_credentials(profile = "ybryan")
 :::
 ::::::::::::::
 
-## Objective
+## Project Objective
 
-- Model variance of lane positioning/offset to understand texting effect
+- Model variance of lane positioning to quantify texting effect
+
+- Explore population level effects on variance
+  - Age, Gender, Personality (Type AB, Anxiety score)
 
 - Bayesian modelling
 
@@ -55,79 +94,44 @@ aws.signature::use_credentials(profile = "ybryan")
     - [Stan](http://mc-stan.org/) MCMC Programming: Sampling with Hamiltonian Monte Carlo
     - ["Modern Statistical Workflow"](https://modernstatisticalworkflow.blogspot.com/2016/08/what-is-modern-statistical-workflow.html)^2^: Capture simulated data before fitting observations
     
-- Explore population level effects on variance
- 
-## Preliminary Analysis: All drivers
-
+## Data Preparation
 :::::::::::::: {.columns}
 ::: {.column}
-- Each color is a separate driver (N=68)
-
-- Data resampled at 390 data points and missing data filtered
-
-    - Prior to lane change: 200
-    - After lane change: 190
+- Focused only on the sensorimotor (MD) / texting drive
 
 - Focused on first half (prior to lane change)
 
+- Filtered out drivers with missing `LaneOffset` data (N=62)
+
+- Data downsampled to 200 data points per driver
+
+  - 62 drivers * 200 datapoints = 12,400 records
+
+- Each color is a separate driver (N=68)
+
 - Some drivers exhibit extremely long tails in their lane positioning
 
-- Univariate (T021) data is stationary according to Dickey-Fuller test
-
-    - Accounting for texting vs normal driving state
 :::
 ::: {.column}
 ```{r prelim_plot_all, fig.width=8, fig.height=6}
-df_select <- feather::read_feather(here::here("study_df", "df_select.feather"))
-subject_df <- feather::read_feather(here::here("study_df", "subject_df.feather"))
-df <- df_select %>% 
-    dplyr::filter(Distance >= 250) %>%         # Remove driver starts
-    dplyr::filter(Distance <= 11000) %>%       # Remove driver ends
-    dplyr::inner_join(subject_df, by=c("Subject"="subject"))
-
-nd_raw <- df %>%  dplyr::filter(Drive == "ND") 
-md_raw <- df %>%  dplyr::filter(Drive == "MD") 
-rm(subject_df)
-
-df_cleaner <- df %>% 
-    dplyr::filter(!Subject %in% c(
-        "T028", "T032", "T033", "T088")) %>%  # Missing stimulus variable
-    dplyr::filter(!(Subject=="T002")) %>% # Missing eye gaze
-    dplyr::filter(!(Subject=="T003" & Drive=="MD")) %>% 
-    dplyr::filter(!(Subject=="T007")) %>% 
-    dplyr::filter(!(Subject=="T008" & Drive=="MD")) %>% 
-    dplyr::filter(!(Subject=="T015")) %>% 
-    dplyr::filter(!(Subject=="T017")) %>% 
-    dplyr::filter(!(Subject=="T023")) %>% 
-    dplyr::filter(!(Subject=="T027")) %>% 
-    dplyr::filter(!(Subject=="T028" & Drive=="MD")) %>% 
-    dplyr::filter(!(Subject=="T029")) %>% 
-    dplyr::filter(!(Subject=="T032")) %>% 
-    dplyr::filter(!(Subject=="T036")) %>% 
-    dplyr::filter(!(Subject=="T038")) %>% 
-    dplyr::filter(!(Subject=="T042")) %>% 
-    dplyr::filter(!(Subject=="T047")) %>% 
-    dplyr::filter(!(Subject=="T055" & Drive=="ND")) %>% 
-    dplyr::filter(!(Subject=="T086" & Drive=="ND")) %>%
-    dplyr::filter(
-        !dplyr::between(Distance, 5000, 7000)) %>% # Remove lane change
-    dplyr::mutate(half=ifelse(Distance < 5000, 1, 2)) %>%
-    dplyr::mutate(Stimulus=as.factor(Stimulus))
-
+df_md <- feather::read_feather(here::here('etc', 'cleaner_data', 'df_select.feather'))
 rect <- data.frame(xmin=5000, xmax=Inf, ymin=-Inf, ymax=Inf)
-ggplot(md_raw, aes(Distance, Lane.Position)) + 
+all_plot <- ggplot(df_md, aes(Distance, Lane.Position)) + 
+  geom_line(aes(colour=Subject)) +
     geom_rect(data=rect, aes(xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax),
               color="transparent", alpha=0.25, inherit.aes = FALSE) +
     geom_line(aes(colour=Subject)) + 
     theme_bw() + 
     theme(legend.position = "none") + 
-    ggtitle("Texting driving") +
+    ggtitle("MD Drive") +
     xlab("Distance (m)") + 
     ylab("Lane Position(m)") +
     coord_cartesian(ylim=c(-5.5, 7)) +
-    annotate("text", x=5750, y=0, label="Lane Change", angle=90, color="Red",  size=4, hjust=0) +
-    annotate("text", x=1750, y=6.25, label="Model Focus",  size=5, hjust=0, color="blue")
-  
+    annotate("text", x=5750, y=0, label="Lane Change",
+             angle=90, color="Red",  size=4, hjust=0) +
+    annotate("text", x=1750, y=6.25, label="Model Focus",
+             size=5, hjust=0, color="blue") 
+all_plot
 ```
 :::
 ::::::::::::::
@@ -135,147 +139,152 @@ ggplot(md_raw, aes(Distance, Lane.Position)) +
 ## Preliminary Analysis: T021 Driver
 :::::::::::::: {.columns}
 ::: {.column}
+
+- Univariate (T021) data is stationary according to the Dickey-Fuller Test
+
+  - Accounting for texting vs normal driving
+  
+- Higher variance in `LaneOffset` when driver is texting
+
+- Data exhibits an autoregressive structure in the correlogram and plot of the `LaneOffset`
+
+:::
+::: {.column}
+
 ```{r prelim_plot_t021, fig.width=8, fig.height=6}
-load(here("md_lane.RData"))
-input_data <- list("y" = md_half$LaneOffset,
-                   "texting" = as.integer(md_half$Stimulus),
-                   "N" = length(md_half$Lane.Position),
-                   "N_texting" = length(unique(as.integer(md_half$Stimulus))))
-colors <- list(c_light=c("#DCBCBC"), c_light_highlight=c("#C79999"),
-               c_mid=c("#B97C7C"),   c_mid_highlight=c("#A25050"),
-               c_dark=c("#8F2727"),  c_dark_highlight=c("#7C0000"),
-               d_light=c("#BCBCDC"), d_light_highlight=c("#9999C7"),
-               d_mid=c("#7C7CB9"),   d_mid_highlight=c("#5050A2"),
-               d_dark=c("#27278F"),  d_dark_highlight=c("#00007c"))
-ggplot(md_half, aes(Distance, LaneOffset)) +
+md_half <- readRDS(here('etc', 'cleaner_data', 'md_half_t021.RData'))
+t021_plot <- ggplot(md_half, aes(Distance, LaneOffset)) +
     geom_line() +
     geom_point(aes(colour=Stimulus), size=1.5) +
     theme_bw() + 
-    theme(legend.position = "bottom",
-          legend.background = element_rect(fill="gray90", size=.5, linetype="dotted")) + 
-    ggtitle("Texting Driving (First half)") +
+    theme(legend.position = "right",
+          legend.background = element_rect(
+            fill="gray90", size=.5, linetype="dotted")) + 
+    ggtitle("Texting Driving (T021 Driver)") +
     xlab("Distance (m)") + 
     ylab("Lane Offset (m)") +
-    coord_cartesian(ylim=c(-0.75, 0.5)) +
+    coord_cartesian(ylim=c(-0.75, .5)) +
     scale_color_manual(labels=c("No Distraction", "Texting"),
                        values=c(colors$c_mid_highlight, colors$d_mid_highlight))
-```
-:::
-::: {.column}
-```{r acf_t021, fig.width=8, fig.height=6}
-load(here::here('md_lane.RData'))
-subject <- "T021"
+
 conf.level <- 0.95
-acf_md <- acf(md_half$LaneOffset, plot=FALSE)
+acf_md <- acf(md_half$Lane.Position, plot=FALSE)
 acf_md_df <- with(acf_md, data.frame(lag, acf))
-ciline <- qnorm((1 - conf.level)/2)/sqrt(length(md_half$Lane.Position))
-md_acf <- ggplot(acf_md_df, aes(lag, acf)) +
+ciline <- qnorm((1 - conf.level)/2)/sqrt(
+  length(md_half$Lane.Position))
+
+t021_acf <- ggplot(acf_md_df, aes(lag, acf)) +
     geom_segment(aes(xend=lag, yend=0)) +
     geom_hline(aes(yintercept=0)) + 
     geom_hline(aes(yintercept= -ciline), linetype=2, color='darkblue') +
     geom_hline(aes(yintercept= ciline), linetype=2, color='darkblue') +
     theme_bw() + 
     theme(legend.position = "none") + 
-    ggtitle("Texting Driving: First half") +
+    ggtitle("Texting Driving (T021 Driver)") +
     xlab("Lag") + 
     ylab("ACF")
-md_acf
+grid.arrange(t021_plot, t021_acf, nrow=2)
+rm(ciline, conf.level, acf_md, acf_md_df, md_half, t021_acf, t021_plot)
+```
+:::
+::::::::::::::
+
+## Preliminary Analysis: All drivers
+:::::::::::::: {.columns}
+::: {.column}
+
+- Age effect appears to have significant interaction effect with texting 
+
+- Gender and personality level effects (anxiety score, Type A/B) do not appear to have significant effects with regard to driving variance
+
+- With a sample size of $N_{drivers} = 62$, not enough power to test other interactions
+:::
+::: {.column}
+```{r prelim_plot_all_drivers, fig.width=8, fig.height=6}
+md_half_all <- readRDS(here('etc', 'cleaner_data', 'md_half_df.RData'))
+subject_df <- md_half_all %>% 
+  group_by(Subject, gender, age_group, tai, type_ab) %>% 
+  summarize(sd = sd(LaneOffset)) %>%
+  select(Subject, gender, age_group, tai, type_ab)
+input_data <- list("N_drivers" = length(unique(md_half_all$Subject)),
+                   "N_age" = length(unique(md_half_all$age_group)),
+                   "N_time" = 200,
+                   "N" = 200 * length(unique(md_half_all$Subject)),
+                   "N_texting" = 2,
+                   "texting" = as.integer(md_half_all$Stimulus),
+                   "age" = as.integer(as.factor(subject_df$age_group)),
+                   "y" = md_half_all$LaneOffset)
+agg_data <- md_half_all %>% group_by(Subject) %>% 
+  summarize(sd = sd(LaneOffset)) %>%
+  left_join(subject_df, by="Subject")
+
+agg_data_stim <- md_half_all %>% group_by(Subject, Stimulus) %>% 
+  summarize(sd = sd(LaneOffset)) %>%
+  left_join(subject_df, by="Subject")
+
+levels(agg_data_stim$Stimulus) <- c("Normal", "Texting")
+p1 <- ggplot(agg_data, aes(type_ab, sd)) + geom_point() + xlab("Type AB")
+p2 <- ggplot(agg_data, aes(tai, sd)) + geom_point() + xlab("Anxiety")
+p3 <- ggplot(agg_data_stim, aes(gender, sd)) + geom_violin() + 
+  facet_grid(. ~ Stimulus) + xlab("Gender")
+p4 <- ggplot(agg_data_stim, aes(age_group, sd)) + geom_violin(fill="yellow") + 
+  facet_grid(. ~ Stimulus) + xlab("Age Group")
+grid.arrange(p4, p3, p1, p2, nrow = 2)
+rm(p4, p3, p1, p2, agg_data, agg_data_stim, subject_df, input_data, md_half_all)
 ```
 :::
 ::::::::::::::
 
 ## Modelling
-### Univariate model (T021 driver)
 
-- Autoregressive (AR) model
-
-### Multivariate model (all drivers)
-
-- Independent drivers model
-
-- Hierarchical model: Regularization
-
-## AR(1): Setup
 :::::::::::::: {.columns}
 ::: {.column}
-### Conceptual Analysis
-Single driver staying in the middle of a lane. Should expect that as the driver moves out of the middle of lane to correct by reducing lane position back to middle (LaneOffset = 0). Would expect that mean and variance is constant in each state of driving (normal vs texting)
+**Univariate model (T021 driver)**
 
-### Define observations
+○ AR(1): Texting effect
 
-$$T: \textrm{Number of observations}$$
-$$N_{texting}: \textrm{Number of texting states } (j)$$
-$$y_t: \textrm{Lane Offset (meters)}$$
-$$x_t: \textrm{Texting indicator (1: ND, 2: MD)}$$
+$$y_t \sim \textrm{Normal}(\alpha + \rho y_{t-1}, \sigma_0 + \delta_j_0)$$
+
+**Multivariate model (all drivers)**
+
+○ AR(1): Additive effects (pooled individuals)
+
+$$\mu = \alpha + \rho y_{t-1, i}$$
+$$\sigma = \sigma_0 + \sigma_i + \delta_j_0 + \delta_{j, i}$$
+$$y_{t, i, j} \sim \textrm{N}(\mu, \sigma)$$
+
+○ AR(1): Multiplicative effects (texting & age)
+
+$$\sigma = \sigma_0 * exp \big[log (\sigma_{j}) + log(\sigma_{j, k}) \big]$$
+$$y_{t, i, j, k} \sim \textrm{N}(\mu, \sigma)$$
+
 :::
 ::: {.column}
-### Summary Statistic
-Posterior Predictive mean of each $y_{t+1}$
+$$y: \textrm{LaneOffset}$$
+$$t: \textrm{Distance (n = 200)}$$
+$$i: \textrm{Drivers (n = 62)}$$
+$$j: \textrm{Texting (n = 2)}$$
+$$k: \textrm{Age (n = 2)}$$
 
-### Likelihood and priors
-$$y_t \sim \mathcal{N}(\alpha + \rho y_{t - 1}, \sigma + \delta_j)$$
 
-$$\rho \sim \textrm{Uniform}(0, 1)$$
-$$\sigma_i \sim \mathcal{H}(0, 1)$$
+**Priors**
+
 $$\alpha \sim \mathcal{N}(0, 1)$$
-$$\delta_j\sim \mathcal{H}(0, 1)$$
+$$\rho \sim \textrm{Uniform}(0, 1)$$
+$$\sigma_0, \delta_j_0 \sim \textrm{Half-normal}(0, 1)$$
+$$\sigma_i, \delta_{j, i} \sim \textrm{Half-normal}(0, \sigma_\gamma)$$
+$$\sigma_\gamma \sim \textrm{Half-normal}(0, 0.1)$$
+$$log(\sigma_{j}), log(\sigma_{j, k}) \sim \textrm{N}(0, 1)$$
+
 :::
 ::::::::::::::
 
-## Prior Predictive Fit Tests
-:::::::::::::: {.columns}
-::: {.column}
-![](/Users/bryanyu/Dropbox/STATS/STAT685/etc/Shrinkage.png)
-:::
-::: {.column}
-![](/Users/bryanyu/Dropbox/STATS/STAT685/etc/sbc.png)
-:::
-::::::::::::::
-## AR(1): Prior Predictive Analysis
-:::::::::::::: {.columns}
-::: {.column}
-```{r generate_ensemble, results="hide", fig.width=8, fig.height=6}
-fit <- readRDS(here('etc', 'fits', 'ar1_gen.RData'))
-probs <- c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
-# prior predictive time series
-post <- as.matrix(fit)
-sel <- grep("y_ppc", colnames(post))
-ci50 <- matrix(NA, nrow = length(sel), ncol = 2)
-ci90 <- matrix(NA, nrow = length(sel), ncol = 2)
-for (i in 1:length(sel)) {
-  ci50[i,] <- quantile(post[,sel[i]], prob = c(0.25, 0.75), names = FALSE)
-  ci90[i,] <- quantile(post[,sel[i]], prob = c(0.05, 0.95), names = FALSE)
-}
+## AR(1) Univariate: Results
 
-plot(0, type= "n", 
-     xlim = c(0,max(md_half$Distance)), ylim = c(-10, 10),
-     xlab = "Distance", ylab = "Lane Offset (m)",
-     main = "Prior Predictive Ensemble\nLane Offset: 50% and 90% intervals")
-t <- md_half$Distance
-polygon(c(rev(t), t), c(rev(ci90[,1]), ci90[,2]),  col = colors$c_light, border = FALSE)
-polygon(c(rev(t), t), c(rev(ci50[,1]), ci50[,2]), col = colors$c_mid, border = FALSE)
-t <- md_half$Distance[which(input_data$texting==2)]
-i <- which(input_data$texting==2)
-polygon(c(rev(t), t), c(rev(ci90[i,1]), ci90[i,2]), col = colors$d_light, border = FALSE)
-polygon(c(rev(t), t), c(rev(ci50[i,1]), ci50[i,2]), col = colors$d_mid, border = FALSE)
-legend("bottomright", c("No stimulus", "Texting"),
-       col = c(colors$c_mid, colors$d_mid), lwd = c(2,2,2), text.font=0.5)
-```
-:::
-::: {.column}
-![](/Users/bryanyu/Dropbox/STATS/STAT685/src/presentation/graphics/prior/ar1_texting_sbc_shrink.png )
-:::
-::::::::::::::
-## AR(1): Fit observations
 :::::::::::::: {.columns}
-::: {.column}
-```{r ar1_fit, fig.width=8, fig.height=6}
-fit <- readRDS(here("etc", "fits", "ar1_texting_stan_fit.RData"))
-pairs(fit, pars=c("alpha", "rho", "sigma", "delta_texting"))
-```
-:::
 ::: {.column}
 ```{r ar1_fit_plot, fig.width=8, fig.height=6}
+fit <- readRDS(here("etc", "fits", "ar1_texting_stan_fit.RData"))
 bayesplot_theme_set(theme_minimal())
 posterior <- as.matrix(fit)
 plot_title <- ggtitle("Posterior distributions (80% intervals)")
@@ -284,12 +293,15 @@ mcmc_areas(posterior,
            prob = 0.8) + plot_title
 ```
 :::
-::::::::::::::
-
-## AR(1): Posterior Predictive Check
-:::::::::::::: {.columns}
 ::: {.column}
 ```{r ar1_ppc_plot, fig.width=8, fig.height=6}
+fit <- readRDS(here("etc", "fits", "ar1_texting_stan_fit.RData"))
+md_half <- readRDS(here('etc', 'cleaner_data', 'md_half_t021.RData'))
+input_data <- list("y" = md_half$LaneOffset,
+                   "texting" = as.integer(md_half$Stimulus),
+                   "N" = length(md_half$Lane.Position),
+                   "N_texting" = length(unique(as.integer(md_half$Stimulus))))
+
 post <- as.matrix(fit)
 sel <- grep("y_ppc", colnames(post))
 # compute the credible intervals
@@ -302,7 +314,8 @@ for (i in 1:length(sel)) {
 
 plot(0, type= "n", 
      xlim = c(0, max(md_half$Distance)), ylim = c(-.6, .5),
-     xlab = "Distance", ylab = "Lane Offset", main = "AR(1) Model - Texting driving")
+     xlab = "Distance", ylab = "Lane Offset", 
+     main = "Posterior Predictive Check (y_{t+1})")
 t <- md_half$Distance
 polygon(c(rev(t), t), c(rev(ci90[,1]), ci90[,2]), col = colors$c_light, border = FALSE)
 polygon(c(rev(t), t), c(rev(ci50[,1]), ci50[,2]), col = colors$c_mid, border = FALSE)
@@ -316,71 +329,213 @@ lines(md_half$Distance, input_data$y, col = "#0c120c", lwd = 2)
 legend("bottomright", c("actual", "pred (avg)", "Normal", "Texting"),
        col = c("#0c120c", "hotpink", colors$c_mid, colors$d_mid),
        lwd = c(2,2,2), text.font=0.5)
-```
-:::
-::: {.column}
-![](/Users/bryanyu/Dropbox/STATS/STAT685/src/presentation/graphics/ar1_table.png)
-```{r ar1_table, eval=FALSE}
-kable_as_image(kable(as.data.frame(
-  summary(fit, 
-          pars=c("alpha", "rho", "sigma", "delta_texting"),
-          prob=c(0.50))$summary) %>% 
-    select(-n_eff, -Rhat)
-  , format="latex", digits = 3, booktabs=T, caption="Parameters") %>%
-    kable_styling(latex_options="striped"),
-  filename=here('src', 'presentation', 'graphics', 'ar1_table'))
+rm(t, i, ci50, ci90, post, sel)
 ```
 :::
 ::::::::::::::
 
-## AR(1): Multivariate drivers 
+## AR(1) Univariate: Diagnostics
+
 :::::::::::::: {.columns}
 ::: {.column}
-### Likelihood and priors
-$$y_{i, t} \sim \mathcal{N}(\alpha + \rho y_{i, t - 1}, \sigma_{base} + \sigma_i + \delta_{base} + \delta_i)$$
+```{r ar1_univ_trace, fig.width=8, fig.height=8}
+fit <- readRDS(here("etc", "fits", "ar1_texting_stan_fit.RData"))
+bayesplot_theme_set(theme_minimal())
+posterior <- as.array(fit)
+plot_title <- ggtitle("Trace plots")
+color_scheme_set("blue")
+mcmc_trace(posterior, 
+           pars = c("alpha", "rho", "sigma", "delta_texting"),
+           ) + plot_title
+```
 
-$$\sigma_i \sim \mathcal{N}(0, 0.1)$$
-$$\delta_i \sim \mathcal{N}(0, 0.1)$$
 :::
 ::: {.column}
-```{r}
-fit_multi_ar <- readRDS(here('etc', 'fits', 'ar1_texting_multi.Rdata'))
-mcmc_areas(as.array(fit_multi_ar), pars=c("sigma_base", "delta_texting"), prob=0.8)
+```{r ar1_univ_pairs, fig.width=8, fig.height=6}
+fit <- readRDS(here("etc", "fits", "ar1_texting_stan_fit.RData"))
+bayesplot_theme_set(theme_minimal())
+posterior <- as.array(fit)
+color_scheme_set("blue")
+mcmc_acf(posterior, 
+           pars = c("alpha", "rho", "sigma", "delta_texting"))
+```
+
+:::
+::::::::::::::
+
+## AR(1) Multivariate Additive: Individual results
+
+:::::::::::::: {.columns}
+::: {.column}
+
+- Large variation between individuals
+
+- Clusters of population exist where the effect of texting and the base standard deviation of lane offset seem to match
+
+- Drivers who have high variation in lane positioning have correspondingly higher variation when texting
+
+:::
+::: {.column}
+
+```{r ar1_add, fig.width=8, fig.height=8, warning=FALSE, message=FALSE}
+md_half_all <- readRDS(here('etc', 'cleaner_data', 'md_half_df.RData'))
+subject_df <- md_half_all %>% 
+  group_by(Subject, gender, age_group, tai, type_ab) %>% 
+  summarize(sd = sd(LaneOffset)) %>%
+  select(Subject, gender, age_group, tai, type_ab)
+input_data <- list("N_drivers" = length(unique(md_half_all$Subject)),
+                   "N_age" = length(unique(md_half_all$age_group)),
+                   "N_time" = 200,
+                   "N" = 200 * length(unique(md_half_all$Subject)),
+                   "N_texting" = 2,
+                   "texting" = as.integer(md_half_all$Stimulus),
+                   "age" = as.integer(as.factor(subject_df$age_group)),
+                   "y" = md_half_all$LaneOffset)
+fit_pooled <- readRDS(
+  file=here('etc', 'fits', 'ar1_texting_multi_pooled.RData')) 
+posterior_pooled <- as.array(fit_pooled)
+
+par_sigma_names <- dimnames(posterior_pooled)$parameters[
+  which(!is.na(
+    str_match(dimnames(posterior_pooled)$parameters, "sigma_driver\\[[:xdigit:]")))]
+dimnames(posterior_pooled)$parameters[
+  dimnames(posterior_pooled)$parameters %in% par_sigma_names] <- subject_df$Subject 
+p1 <- mcmc_intervals(posterior_pooled, pars=subject_df$Subject)
+
+posterior_pooled <- as.array(fit_pooled)
+par_delta_names <- dimnames(posterior_pooled)$parameters[
+  which(!is.na(
+    str_match(dimnames(posterior_pooled)$parameters, "delta_texting_driver\\[[:xdigit:]")))]
+dimnames(posterior_pooled)$parameters[
+  dimnames(posterior_pooled)$parameters %in% par_delta_names] <- subject_df$Subject 
+p2 <- mcmc_intervals(posterior_pooled, pars=subject_df$Subject)
+bayesplot_grid(p1, p2,
+               titles=c("LaneOffset Std Dev", "Texting Effect"),
+               grid_args=list(ncol = 2))
+rm(p1, p2, md_half_all, subject_df, input_data, fit_pooled, posterior_pooled)
 ```
 :::
 ::::::::::::::
 
-## AR(1): Hierarchical multivariate model
+## AR(1) Multivariate Additive: Hyperprior results
+
 :::::::::::::: {.columns}
 ::: {.column}
-### Likelihood and priors
-$$y_{i, t} \sim \mathcal{N}(\alpha + \rho y_{i, t - 1}, \sigma_{base} + \sigma_i + \delta_{base} + \delta_i)$$
 
-$$\sigma_i \sim \mathcal{N}(0, \sigma_\gamma)$$
-$$\sigma_\gamma \sim \mathcal{N}(0, 0.01)$$
-$$\delta_i \sim \mathcal{N}(0, \delta_\gamma)$$
-$$\delta_\gamma \sim \mathcal{N}(0, 0.01)$$
+- Pooling forces variability of the $\delta_{j_0}$ to zero but variability is now within all the drivers
+
+- Hyperpriors show that the texting effect doubles the standard deviation of lane positioning for the individual drivers
+
 :::
 ::: {.column}
-```{r}
-fit_multi_pooled_ar <- readRDS(here('etc', 'fits', 'ar1_texting_multi_pooled.Rdata'))
-mcmc_areas(as.array(fit_multi_pooled_ar), pars=c("sigma_base", "delta_texting"), prob=0.8)
+
+```{r ar1_add_hyper, fig.width=8, fig.height=5, warning=FALSE, message=FALSE}
+fit_pooled <- readRDS(
+  file=here('etc', 'fits', 'ar1_texting_multi_pooled.RData')) 
+posterior_pooled <- as.array(fit_pooled)
+mcmc_intervals(posterior_pooled, pars=c("sigma_base", "delta_base", "sigma_driver_sigma", "delta_texting_driver_sigma"))
+
+rm(md_half_all, subject_df, input_data, fit_pooled, posterior_pooled)
+```
+:::
+::::::::::::::
+## AR(1) Multivariate Additive: Diagnostics
+:::::::::::::: {.columns}
+::: {.column}
+```{r ar1_multi_trace, fig.width=8, fig.height=6}
+fit_pooled <- readRDS(
+  file=here('etc', 'fits', 'ar1_texting_multi_pooled.RData')) 
+posterior_pooled <- as.array(fit_pooled)
+bayesplot_theme_set(theme_minimal())
+plot_title <- ggtitle("Trace plots")
+color_scheme_set("blue")
+mcmc_trace(posterior_pooled, 
+           pars = c("alpha", "rho", "sigma_base",
+                    "sigma_driver_sigma", "delta_base", 
+                    "delta_texting_driver_sigma")) +
+  plot_title
+```
+
+:::
+::: {.column}
+```{r, fig.width=8, fig.height=6}
+mcmc_acf(posterior_pooled, 
+           pars = c("alpha", "rho", "sigma_base",
+                    "sigma_driver_sigma", "delta_base",
+                    "delta_texting_driver_sigma"))
 ```
 :::
 ::::::::::::::
 
-## AR(1): Texting effect: Regularization by driver
+## AR(1) Multivariate Multiplicative: Results
 :::::::::::::: {.columns}
 ::: {.column}
-![](/Users/bryanyu/Dropbox/STATS/STAT685/etc/plots/ar_delta.png)
+
+* Older drivers have higher lane position variance in both non-texting and texting situations
+
+* The interaction effect between texting and the age group causes the posterior distribution to be much wider
+
+* The large variation between individual drivers when texting contributes to the larger posterior of the texting effect
+
+* Much longer right tails in the lane position variance
+
 :::
 ::: {.column}
-![](/Users/bryanyu/Dropbox/STATS/STAT685/etc/plots/pooled_ar_delta.png)
+```{r, warning=FALSE, message=FALSE, fig.width=8, fig.height=6}
+fit_age <- readRDS(file=here('etc', 'fits', 'ar1_texting_age.RData'))
+posterior_age <- as.matrix(fit_age)
+dimnames(posterior_age)$parameters[8:9] <- c("Old_Drivers", "Young_Drivers")
+p1 <- mcmc_areas(posterior_age,
+                 pars=c("Old_Drivers", "Young_Drivers")) +
+  xlim(-0.0448, 1.08)
+
+posterior_age <- as.matrix(fit_age)
+dimnames(posterior_age)$parameters[10:11] <- c("Old_Drivers", "Young_Drivers")
+p2 <- mcmc_areas(posterior_age,
+                 pars=c("Old_Drivers", "Young_Drivers")) +
+  xlim(-0.0448, 1.08)
+bayesplot_grid(p1, p2, titles=c("Lane position variance: Texting", "Lane position variance: Not texting"))
+```
 :::
 ::::::::::::::
+## AR(1) Multivariate Multiplicative: Dianostics
+:::::::::::::: {.columns}
+::: {.column}
+```{r ar1_multi2_trace, fig.width=8, fig.height=6}
+fit_age <- readRDS(
+  file=here('etc', 'fits', 'ar1_texting_age.RData')) 
+posterior_age <- as.array(fit_age)
+bayesplot_theme_set(theme_minimal())
+plot_title <- ggtitle("Trace plots")
+color_scheme_set("blue")
+mcmc_trace(posterior_age, 
+           pars = c("alpha", "rho", "sigma_base"),
+           regex_pars = c("log"))
+  plot_title
+```
+
+:::
+::: {.column}
+```{r, fig.width=8, fig.height=6}
+mcmc_acf(posterior_age, 
+           pars = c("alpha", "rho", "sigma_base"),
+           regex_pars = c("log"))
+```
+:::
+::::::::::::::
+
+## Conclusions
+
+* On average, with the additive model, the presence of texting effect doubles the variance of lane positioning 
+
+* Large variation between drivers
+  - Drivers with higher lane position variance -> higher lane position variance when texting
+
+* Older drivers exhibit increased variance for both texting and non-texting
+
+* Multiplicative model: Effect of texting / age increases the tails and right skewness in variance of lane positioning
 
 # Backup slides
-
 ## References
 
 1. Taamneh, S. et al. A multimodal dataset for various forms of distracted driving. Sci. Data 4:170110 doi: 10.1038/sdata.2017.110 (2017).
@@ -412,33 +567,53 @@ mcmc_areas(as.array(fit_multi_pooled_ar), pars=c("sigma_base", "delta_texting"),
 
 - Determine better methods for posterior predictive checking for time series data
   - Correlogram & Variogram
+  
+## Prior Predictive Fit Tests
+:::::::::::::: {.columns}
+::: {.column}
+![Shrinkage](/Users/bryanyu/Dropbox/STATS/STAT685/etc/pix/Shrinkage.png)
+:::
+::: {.column}
+![Simulation Based Calibration](/Users/bryanyu/Dropbox/STATS/STAT685/etc/pix/sbc.png)
+:::
+::::::::::::::
 
-## AR(1): Posterior Predictive Check - Correlogram
-```{r fig.width=8, fig.height=6}
-B <- 23
-obs_acf <- acf(input_data$y, plot=FALSE)$acf
-
-idx <- rep(1:B, each=2)
-x <- sapply(1:length(idx), function(b) if(b %% 2 == 0) idx[b] + 0.5 else idx[b] - 0.5)
-pad_obs <- do.call(cbind, lapply(idx, function(n) obs_acf[n]))
-
-fit <- readRDS(here("etc", "fits", "ar1_texting_stan_fit.RData"))
-params <- extract(fit)
-counts <- sapply(1:4000, function(n) acf(params$y_ppc[n,], plot=FALSE)$acf)
+## AR(1): Prior Predictive Analysis
+:::::::::::::: {.columns}
+::: {.column}
+```{r generate_ensemble, results="hide", fig.width=8, fig.height=6}
+fit <- readRDS(here('etc', 'fits', 'ar1_gen.RData'))
 probs <- c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
-cred <- sapply(1:B, function(b) quantile(counts[b, ], probs=probs))
-pad_cred <- do.call(cbind, lapply(idx, function(n) cred[1:9, n]))
+# prior predictive time series
+post <- as.matrix(fit)
+sel <- grep("y_ppc", colnames(post))
+ci50 <- matrix(NA, nrow = length(sel), ncol = 2)
+ci90 <- matrix(NA, nrow = length(sel), ncol = 2)
+for (i in 1:length(sel)) {
+  ci50[i,] <- quantile(post[,sel[i]], prob = c(0.25, 0.75), names = FALSE)
+  ci90[i,] <- quantile(post[,sel[i]], prob = c(0.05, 0.95), names = FALSE)
+}
 
-plot(1, type="n", main="Posterior Predictive Correlogram",
-     xlim=c(0.5, B + 0.5), xlab="Lag", ylim=c(0, max(cred[9,])), ylab="")
-polygon(c(x, rev(x)), c(pad_cred[1,], rev(pad_cred[9,])), col = colors$c_light, border = NA)
-polygon(c(x, rev(x)), c(pad_cred[2,], rev(pad_cred[8,])), col = colors$c_light_highlight, border = NA)
-polygon(c(x, rev(x)), c(pad_cred[3,], rev(pad_cred[7,])), col = colors$c_mid, border = NA)
-polygon(c(x, rev(x)), c(pad_cred[4,], rev(pad_cred[6,])), col = colors$c_mid_highlight, border = NA)
-lines(x, pad_cred[5,], col=colors$c_dark, lwd=2) 
-lines(x, pad_obs, col="white", lty=1, lw=2.5)
-lines(x, pad_obs, col="black", lty=1, lw=2)
+plot(0, type= "n", 
+     xlim = c(0,max(md_half$Distance)), ylim = c(-10, 10),
+     xlab = "Distance", ylab = "Lane Offset (m)",
+     main = "Prior Predictive Ensemble\nLane Offset: 50% and 90% intervals")
+t <- md_half$Distance
+polygon(c(rev(t), t), c(rev(ci90[,1]), ci90[,2]),  col = colors$c_light, border = FALSE)
+polygon(c(rev(t), t), c(rev(ci50[,1]), ci50[,2]), col = colors$c_mid, border = FALSE)
+t <- md_half$Distance[which(input_data$texting==2)]
+i <- which(input_data$texting==2)
+polygon(c(rev(t), t), c(rev(ci90[i,1]), ci90[i,2]), col = colors$d_light, border = FALSE)
+polygon(c(rev(t), t), c(rev(ci50[i,1]), ci50[i,2]), col = colors$d_mid, border = FALSE)
+legend("bottomright", c("No stimulus", "Texting"),
+       col = c(colors$c_mid, colors$d_mid), lwd = c(2,2,2), text.font=0.5)
 ```
+
+:::
+::: {.column}
+![](/Users/bryanyu/Dropbox/STATS/STAT685/etc/plots/ar1_texting_sbc_shrink.png )
+:::
+::::::::::::::
 
 ## Stochastic Volatility: Setup
 :::::::::::::: {.columns}
@@ -466,16 +641,6 @@ $$\delta \sim \mathcal{N}(0, 0.05): \textrm{Texting effect}$$
 :::
 ::::::::::::::
 
-## Stochastic Volatility: Prior Predictive Analysis
-:::::::::::::: {.columns}
-::: {.column}
-![](/Users/bryanyu/Dropbox/STATS/STAT685/src/presentation/graphics/prior/sv2.png)
-:::
-::: {.column}
-![](/Users/bryanyu/Dropbox/STATS/STAT685/src/presentation/graphics/prior/sv2_sbc_shrink.png)
-:::
-::::::::::::::
-
 ## Stochastic Volatility: Fit Observations
 :::::::::::::: {.columns}
 ::: {.column}
@@ -485,32 +650,24 @@ pairs(fit, pars=c("mu", "sigma", "phi", "delta_texting"))
 ```
 :::
 ::: {.column}
-```{r sv2_plot}
-bayesplot_theme_set(theme_minimal())
-posterior <- as.matrix(fit)
-plot_title <- ggtitle("Posterior distributions (80% intervals)", "Log volatility")
-mcmc_areas(posterior, 
-           pars = c("mu", "phi", "sigma", "delta_texting"), 
-           prob = 0.8) + plot_title
-```
+1. Lots of divergences (red dots)
+
+2. $\phi$ parameter stuck near 1 indicating non-stationarity
+
+3. On the default chain settings (n=2000, 4 chains), looks like there are two different modes
+
+4. SV is not flexible enough to model this, HMM model maybe more appropriate
 :::
 ::::::::::::::
 
-## Assignment 8 Summary
+```{r, eval=FALSE, include=FALSE}
+fit_age <- readRDS(file=here('etc', 'fits', 'ar1_texting_age.RData'))
+summary(fit_age,
+        pars=c("rho", "alpha", "sigma_base",
+               "log_delta_sigma_age", "log_delta_sigma_texting"),
+        prob=c(0.05, 0.5, 0.95))$summary %>% 
+  as.data.frame() %>%
+  dplyr::select(mean, sd, `5%`, `50%`, `95%`) %>%
+  knitr::kable(digits=3, format="latex")
+```
 
-### Since last time ...
-- Reverted back to AR(1) model, fit with $\delta_j$ term
-
-- Fit multivariate model
-
-- Fit hierarchical multivariate model
-
-- Stopped progress on stochastic volatility model 
-  - Couldn't fix non-stationarity in $phi$ term
-
-### Future work
-- Hierarchical AR model texting effect is too dampened
-
-- Population effects
-
-- Try SV model again?
