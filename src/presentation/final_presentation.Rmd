@@ -5,7 +5,7 @@ author: "Bryan Yu | bryanyu@tamu.edu"
 date: "Summer 2018"
 output: 
     powerpoint_presentation:
-      reference_doc: template_1.potx
+      reference_doc: template.potx
 ---
 
 ```{r setup, include=FALSE}
@@ -255,7 +255,7 @@ $$y_{t, i, j} \sim \textrm{N}(\mu, \sigma)$$
 
 ○ AR(1): Multiplicative effects (texting & age)
 
-$$\sigma = \sigma_0 * exp \big[log (\sigma_{j}) + log(\sigma_{j, k}) \big]$$
+$$\sigma = \sigma_0 * exp \big[log (\sigma_{k}) + log(\sigma_{j, k}) \big]$$
 $$y_{t, i, j, k} \sim \textrm{N}(\mu, \sigma)$$
 
 :::
@@ -370,7 +370,7 @@ mcmc_acf(posterior,
 
 - Large variation between individuals
 
-- Clusters of population exist where the effect of texting and the base standard deviation of lane offset seem to match
+- Clusters of population exist where the effect of texting and the base variation of lane offset correlate
 
 - Drivers who have high variation in lane positioning have correspondingly higher variation when texting
 
@@ -410,7 +410,7 @@ dimnames(posterior_pooled)$parameters[
   dimnames(posterior_pooled)$parameters %in% par_delta_names] <- subject_df$Subject 
 p2 <- mcmc_intervals(posterior_pooled, pars=subject_df$Subject)
 bayesplot_grid(p1, p2,
-               titles=c("LaneOffset Std Dev", "Texting Effect"),
+               titles=c("LaneOffset Variation", "Texting Effect"),
                grid_args=list(ncol = 2))
 rm(p1, p2, md_half_all, subject_df, input_data, fit_pooled, posterior_pooled)
 ```
@@ -424,7 +424,7 @@ rm(p1, p2, md_half_all, subject_df, input_data, fit_pooled, posterior_pooled)
 
 - Pooling forces variability of the $\delta_{j_0}$ to zero but variability is now within all the drivers
 
-- Hyperpriors show that the texting effect doubles the standard deviation of lane positioning for the individual drivers
+- Hyperpriors show that the texting effect doubles the lane position variance for the individual drivers
 
 :::
 ::: {.column}
@@ -477,24 +477,17 @@ mcmc_acf(posterior_pooled,
 
 * The large variation between individual drivers when texting contributes to the larger posterior of the texting effect
 
-* Much longer right tails in the lane position variance
-
 :::
 ::: {.column}
 ```{r, warning=FALSE, message=FALSE, fig.width=8, fig.height=6}
 fit_age <- readRDS(file=here('etc', 'fits', 'ar1_texting_age.RData'))
 posterior_age <- as.matrix(fit_age)
-dimnames(posterior_age)$parameters[8:9] <- c("Old_Drivers", "Young_Drivers")
-p1 <- mcmc_areas(posterior_age,
-                 pars=c("Old_Drivers", "Young_Drivers")) +
-  xlim(-0.0448, 1.08)
-
-posterior_age <- as.matrix(fit_age)
-dimnames(posterior_age)$parameters[10:11] <- c("Old_Drivers", "Young_Drivers")
-p2 <- mcmc_areas(posterior_age,
-                 pars=c("Old_Drivers", "Young_Drivers")) +
-  xlim(-0.0448, 1.08)
-bayesplot_grid(p1, p2, titles=c("Lane position variance: Texting", "Lane position variance: Not texting"))
+dimnames(posterior_age)$parameters[8:11] <- c(
+  "Old Drivers (Texting)", "Young Drivers (Texting)",
+  "Old Drivers (Normal)", "Young Drivers (Normal)")
+mcmc_areas(posterior_age, pars=c(
+  "Old Drivers (Texting)", "Young Drivers (Texting)",
+  "Old Drivers (Normal)", "Young Drivers (Normal)"))
 ```
 :::
 ::::::::::::::
@@ -533,7 +526,7 @@ mcmc_acf(posterior_age,
 
 * Older drivers exhibit increased variance for both texting and non-texting
 
-* Multiplicative model: Effect of texting / age increases the tails and right skewness in variance of lane positioning
+* Multiplicative model: Significant interaction effect with age and texting
 
 # Backup slides
 ## References
