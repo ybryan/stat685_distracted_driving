@@ -393,14 +393,15 @@ input_data <- list("N_drivers" = length(unique(md_half_all$Subject)),
                    "y" = md_half_all$LaneOffset)
 fit_pooled <- readRDS(
   file=here('etc', 'fits', 'ar1_texting_multi_pooled.RData')) 
-posterior_pooled <- as.array(fit_pooled)
 
+posterior_pooled <- as.array(fit_pooled)
 par_sigma_names <- dimnames(posterior_pooled)$parameters[
   which(!is.na(
     str_match(dimnames(posterior_pooled)$parameters, "sigma_driver\\[[:xdigit:]")))]
 dimnames(posterior_pooled)$parameters[
   dimnames(posterior_pooled)$parameters %in% par_sigma_names] <- subject_df$Subject 
-p1 <- mcmc_intervals(posterior_pooled, pars=subject_df$Subject)
+p1 <- mcmc_intervals(posterior_pooled, pars=subject_df$Subject) +
+  ggtitle(bquote("Driver Lane position variation ("~sigma[i]~")"))
 
 posterior_pooled <- as.array(fit_pooled)
 par_delta_names <- dimnames(posterior_pooled)$parameters[
@@ -408,10 +409,9 @@ par_delta_names <- dimnames(posterior_pooled)$parameters[
     str_match(dimnames(posterior_pooled)$parameters, "delta_texting_driver\\[[:xdigit:]")))]
 dimnames(posterior_pooled)$parameters[
   dimnames(posterior_pooled)$parameters %in% par_delta_names] <- subject_df$Subject 
-p2 <- mcmc_intervals(posterior_pooled, pars=subject_df$Subject)
-bayesplot_grid(p1, p2,
-               titles=c("LaneOffset Variation", "Texting Effect"),
-               grid_args=list(ncol = 2))
+p2 <- mcmc_intervals(posterior_pooled, pars=subject_df$Subject) +
+  ggtitle(bquote("Text effect by driver ("~delta[i]~")"))
+bayesplot_grid(p1, p2, grid_args=list(ncol = 2))
 rm(p1, p2, md_half_all, subject_df, input_data, fit_pooled, posterior_pooled)
 ```
 :::
@@ -422,7 +422,7 @@ rm(p1, p2, md_half_all, subject_df, input_data, fit_pooled, posterior_pooled)
 :::::::::::::: {.columns}
 ::: {.column}
 
-- Pooling forces variability of the $\delta_{j_0}$ to zero but variability is now within all the drivers
+- Pooling forces variability of the $\delta_{j_0}$ to zero as variability is now within all the drivers
 
 - Hyperpriors show that the texting effect doubles the lane position variance for the individual drivers
 
@@ -433,9 +433,21 @@ rm(p1, p2, md_half_all, subject_df, input_data, fit_pooled, posterior_pooled)
 fit_pooled <- readRDS(
   file=here('etc', 'fits', 'ar1_texting_multi_pooled.RData')) 
 posterior_pooled <- as.array(fit_pooled)
-mcmc_intervals(posterior_pooled, pars=c("sigma_base", "delta_base", "sigma_driver_sigma", "delta_texting_driver_sigma"))
-
-rm(md_half_all, subject_df, input_data, fit_pooled, posterior_pooled)
+p1 <- mcmc_intervals(
+  posterior_pooled, pars=c("sigma_base", "delta_base", 
+                           "sigma_driver_sigma", "delta_texting_driver_sigma")) +
+  scale_y_discrete(
+    breaks=c("sigma_base",
+             "delta_base",
+             "sigma_driver_sigma",
+             "delta_texting_driver_sigma"),
+    labels=c(bquote("Lane variation intercept ("~sigma[0]~")"),
+             bquote("Texting effect intercept ("~delta[0]~")"),
+             bquote("Hyperprior for driver variation ("~sigma[i]~")"), 
+             bquote("Hyperprior for driver texting effect ("~delta[i]~")"))) +
+  theme(axis.text.y = element_text(size=12))
+p1
+rm(p1, fit_pooled, posterior_pooled)
 ```
 :::
 ::::::::::::::
