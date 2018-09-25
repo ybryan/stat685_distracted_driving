@@ -422,7 +422,7 @@ rm(p1, p2, md_half_all, subject_df, input_data, fit_pooled, posterior_pooled)
 :::::::::::::: {.columns}
 ::: {.column}
 
-- Pooling forces variability of the $\delta_{j_0}$ to zero as variability is now within all the drivers
+- Pooling forces variability of the $\sigma_0$ and $\delta_{j_0}$ to zero as variability is now within all the drivers
 
 - Hyperpriors show that the texting effect doubles the lane position variance for the individual drivers
 
@@ -432,22 +432,44 @@ rm(p1, p2, md_half_all, subject_df, input_data, fit_pooled, posterior_pooled)
 ```{r ar1_add_hyper, fig.width=8, fig.height=5, warning=FALSE, message=FALSE}
 fit_pooled <- readRDS(
   file=here('etc', 'fits', 'ar1_texting_multi_pooled.RData')) 
-posterior_pooled <- as.array(fit_pooled)
+posterior_pooled <- as.array(fit_pooled, pars=c(
+    "sigma_base", "delta_base",
+    "sigma_driver_sigma", "delta_texting_driver_sigma"))
+
+color_scheme_set("blue")
 p1 <- mcmc_intervals(
-  posterior_pooled, pars=c("sigma_base", "delta_base", 
-                           "sigma_driver_sigma", "delta_texting_driver_sigma")) +
+  posterior_pooled,
+  pars=c(
+    "sigma_driver_sigma", "delta_texting_driver_sigma"
+    )) +
   scale_y_discrete(
-    breaks=c("sigma_base",
-             "delta_base",
-             "sigma_driver_sigma",
-             "delta_texting_driver_sigma"),
-    labels=c(bquote("Lane variation intercept ("~sigma[0]~")"),
-             bquote("Texting effect intercept ("~delta[0]~")"),
-             bquote("Hyperprior for driver variation ("~sigma[i]~")"), 
-             bquote("Hyperprior for driver texting effect ("~delta[i]~")"))) +
-  theme(axis.text.y = element_text(size=12))
-p1
-rm(p1, fit_pooled, posterior_pooled)
+    breaks=c(
+      "sigma_driver_sigma", "delta_texting_driver_sigma"
+      ),
+    labels=c(
+      bquote("Hyperprior for \ndriver variation ("~sigma[i]~")"), 
+      bquote("Hyperprior for \ndriver texting effect ("~delta[i]~")")
+      )) + 
+  theme(text = element_text(size=16))
+
+color_scheme_set("red")
+p2 <- mcmc_intervals(
+  posterior_pooled,
+  pars=c(
+    "sigma_base", "delta_base"
+    )) +
+  scale_y_discrete(
+    breaks=c(
+      "sigma_base", "delta_base"
+      ),
+    labels=c(
+      bquote("Lane variation intercept ("~sigma[0]~")"),
+      bquote("Texting effect intercept ("~delta[0]~")")
+      )) +
+  theme(text = element_text(size=16))
+bayesplot_grid(p2, p1, xlim=c(0, 0.25))
+
+rm(p1, p2, fit_pooled, posterior_pooled)
 ```
 :::
 ::::::::::::::
