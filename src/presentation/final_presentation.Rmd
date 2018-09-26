@@ -193,7 +193,7 @@ rm(ciline, conf.level, acf_md, acf_md_df, md_half, t021_acf, t021_plot)
 :::::::::::::: {.columns}
 ::: {.column}
 
-- Age effect appears to have significant interaction effect with texting 
+- Age effect appears to have significant interaction effect with texting (yellow)
 
 - Gender and personality level effects (anxiety score, Type A/B) do not appear to have significant effects with regard to driving variance
 
@@ -272,8 +272,8 @@ $$k: \textrm{Age (n = 2)}$$
 $$\alpha \sim \mathcal{N}(0, 1)$$
 $$\rho \sim \textrm{Uniform}(0, 1)$$
 $$\sigma_0, \delta_j_0 \sim \textrm{Half-normal}(0, 1)$$
-$$\sigma_i, \delta_{j, i} \sim \textrm{Half-normal}(0, \sigma_\gamma)$$
-$$\sigma_\gamma \sim \textrm{Half-normal}(0, 0.1)$$
+$$\sigma_i, \delta_{j, i} \sim \textrm{Half-normal}(0, [\sigma_\gamma, \delta_\gamma ])$$
+$$\sigma_\gamma, \delta_\gamma \sim \textrm{Half-normal}(0, 0.1)$$
 $$log(\sigma_{j}), log(\sigma_{j, k}) \sim \textrm{N}(0, 1)$$
 
 :::
@@ -283,14 +283,26 @@ $$log(\sigma_{j}), log(\sigma_{j, k}) \sim \textrm{N}(0, 1)$$
 
 :::::::::::::: {.columns}
 ::: {.column}
-```{r ar1_fit_plot, fig.width=8, fig.height=6}
+```{r ar1_fit_plot, fig.width=8, fig.height=6, warning=FALSE, message=FALSE}
 fit <- readRDS(here("etc", "fits", "ar1_texting_stan_fit.RData"))
 bayesplot_theme_set(theme_minimal())
 posterior <- as.matrix(fit)
 plot_title <- ggtitle("Posterior distributions (80% intervals)")
 mcmc_areas(posterior, 
-           pars = c("alpha", "rho", "sigma", "delta_texting"), 
-           prob = 0.8) + plot_title
+           pars = c("delta_texting", "sigma", "rho", "alpha"), 
+           prob = 0.8) + plot_title +
+  scale_y_discrete(
+    breaks=c(
+      "delta_texting", "sigma", "rho", "alpha"
+      ),
+    labels=c(
+      bquote(delta[j[0]]),
+      bquote(sigma[0]), 
+      bquote(rho), 
+      bquote(alpha)
+      )) + 
+  theme(axis.text.y = element_text(size=24))
+  
 ```
 :::
 ::: {.column}
@@ -315,7 +327,7 @@ for (i in 1:length(sel)) {
 plot(0, type= "n", 
      xlim = c(0, max(md_half$Distance)), ylim = c(-.6, .5),
      xlab = "Distance", ylab = "Lane Offset", 
-     main = "Posterior Predictive Check (y_{t+1})")
+     main = bquote("Posterior Predictive Check ("~y[t + 1]~")"))
 t <- md_half$Distance
 polygon(c(rev(t), t), c(rev(ci90[,1]), ci90[,2]), col = colors$c_light, border = FALSE)
 polygon(c(rev(t), t), c(rev(ci50[,1]), ci50[,2]), col = colors$c_mid, border = FALSE)
@@ -422,9 +434,9 @@ rm(p1, p2, md_half_all, subject_df, input_data, fit_pooled, posterior_pooled)
 :::::::::::::: {.columns}
 ::: {.column}
 
-- Pooling forces variability of the $\sigma_0$ and $\delta_{j_0}$ to zero as variability is now within all the drivers
+- Pooling forces variability of the $\sigma_0$ and $\delta_{j_0}$ (red) to zero as variability is now within all the drivers
 
-- Hyperpriors show that the texting effect doubles the lane position variance for the individual drivers
+- Hyperprior distributions (blue) show that the texting effect doubles the lane position variance for the individual drivers
 
 :::
 ::: {.column}
@@ -440,34 +452,35 @@ color_scheme_set("blue")
 p1 <- mcmc_intervals(
   posterior_pooled,
   pars=c(
-    "sigma_driver_sigma", "delta_texting_driver_sigma"
+    "delta_texting_driver_sigma", "sigma_driver_sigma"
     )) +
   scale_y_discrete(
     breaks=c(
-      "sigma_driver_sigma", "delta_texting_driver_sigma"
+      "delta_texting_driver_sigma", "sigma_driver_sigma"
       ),
     labels=c(
-      bquote("Hyperprior for \ndriver variation ("~sigma[i]~")"), 
-      bquote("Hyperprior for \ndriver texting effect ("~delta[i]~")")
+      bquote(delta[gamma]),
+      bquote(sigma[gamma]) 
       )) + 
-  theme(text = element_text(size=16))
+  theme(axis.text.y = element_text(size=24))
 
 color_scheme_set("red")
 p2 <- mcmc_intervals(
   posterior_pooled,
   pars=c(
-    "sigma_base", "delta_base"
+    "delta_base", "sigma_base"
     )) +
   scale_y_discrete(
     breaks=c(
-      "sigma_base", "delta_base"
+    "delta_base", "sigma_base"
       ),
     labels=c(
-      bquote("Lane variation intercept ("~sigma[0]~")"),
-      bquote("Texting effect intercept ("~delta[0]~")")
+      bquote(delta[0]),
+      bquote(sigma[0])
       )) +
-  theme(text = element_text(size=16))
-bayesplot_grid(p2, p1, xlim=c(0, 0.25))
+  theme(axis.text.y = element_text(size=24))
+bayesplot_grid(p2, p1, xlim=c(0, 0.25), titles=c(
+  "Base effect", "Hyperpriors (Individual effects)"))
 
 rm(p1, p2, fit_pooled, posterior_pooled)
 ```
@@ -569,10 +582,21 @@ mcmc_acf(posterior_age,
 
 2. Betancourt, Michael. 2018. "A Principled Bayesian Workflow" June 2018
 
-3. Kim, Shephard, Chib (1998) "Stochastic Volatility: Likelihood Inference and Comparison with ARCH Models" *The Review of Economic Studies Vol. 65, No. 3*
-
 4. Stan Development Team. "Stan Modeling Language User’s Guide and Reference Manual" Version 2.17.0, Sept 2017
 
+3. Kim, Shephard, Chib (1998) "Stochastic Volatility: Likelihood Inference and Comparison with ARCH Models" *The Review of Economic Studies Vol. 65, No. 3*
+
+## Future steps
+
+- Incorporate bayesian methods for dealing with missing data
+
+- Incorporate "change-point" model to account for lane changes
+
+- Determine better methods for posterior predictive checking for time series data
+  - Correlogram & Variogram
+  
+- Generative modelling (hidden markov model) instead of autoregressive modelling
+  
 ## Computing Cluster Setup (Amazon Web Services)
 
 ### Prior Predictive Modelling
@@ -586,15 +610,6 @@ mcmc_acf(posterior_age,
   
 - Created a docker container with `RStan` and submitted jobs to AWS Batch service
 
-## Future steps
-
-- Incorporate bayesian methods for dealing with missing data
-
-- Incorporate "change-point" model to account of lane changes
-
-- Determine better methods for posterior predictive checking for time series data
-  - Correlogram & Variogram
-  
 ## Prior Predictive Fit Tests
 :::::::::::::: {.columns}
 ::: {.column}
