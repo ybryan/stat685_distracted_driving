@@ -1,9 +1,23 @@
-# To do:
+To run models:
 
-Exploratory analysis:
+## AR Model
 
-1. Eye tracking data (pupil, gaze)
-2. FACs data
-3. Response of lane deviation
+Recommend running this first
 
-## Notes:
+```sh
+src/workflow/workflow_ar_aws.Rmd
+```
+
+## SV Model
+
+```sh
+src/workflow/workflow_sv2_aws.Rmd
+```
+
+AWS Section will not work without additional configuration
+
+**To create presentation**:
+
+```sh
+src/presentation/final_presentation.Rmd
+```
